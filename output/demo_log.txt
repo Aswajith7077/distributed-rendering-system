@@ -1,0 +1,46 @@
+==============================================================
+  Distributed Rendering - Scaling Experiment
+  (Replicating BigEarth paper experiments in Python)
+==============================================================
+
+  Image resolution : 960 x 540 px
+  Tile grid        : 4 x 4  ->  16 tiles
+  Worker counts    : [1, 2, 4, 8, 16]
+
+--- Running with  1 worker(s) ---
+    Workers:  1  |  Time: 1.98s
+--- Running with  2 worker(s) ---
+    Workers:  2  |  Time: 1.19s
+--- Running with  4 worker(s) ---
+    Workers:  4  |  Time: 0.74s
+--- Running with  8 worker(s) ---
+    Workers:  8  |  Time: 0.59s
+--- Running with 16 worker(s) ---
+    Workers: 16  |  Time: 0.68s
+
+==============================================================
+  RESULTS TABLE
+==============================================================
+   Workers    Time (s)     Speedup    Efficiency
+  ----------------------------------------------
+         1        1.98        1.00x       100.0%
+         2        1.19        1.67x        83.3%
+         4        0.74        2.68x        67.0%
+         8        0.59        3.36x        42.0%
+        16        0.68        2.91x        18.2%
+==============================================================
+
+  SPEEDUP CHART  (relative to 1 worker)
+  ------------------------------------------------------
+    1 workers |#############---------------------------| 1.00x
+    2 workers |######################------------------| 1.67x
+    4 workers |####################################----| 2.68x
+    8 workers |##############################################| 3.36x
+   16 workers |########################################| 2.91x
+
+  NOTE: Non-linear scaling matches paper's findings.
+        Overhead from task dispatch + I/O limits perfect speedup.
+
+  [OK] Final image saved to: output/final.png
+     Open output/final.png to verify the stitched result.
+

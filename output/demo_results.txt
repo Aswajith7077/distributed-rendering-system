@@ -1,0 +1,6 @@
+==============================================================
+  Distributed Rendering ù Scaling Experiment
+  (Replicating BigEarth paper experiments in Python)
+==============================================================
+
+  Image resolution : 960 ╫ 540 px

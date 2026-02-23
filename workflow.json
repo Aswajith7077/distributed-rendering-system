@@ -1,0 +1,17 @@
+{
+  "pipeline": [
+    {"operator": "frame_split"},
+    {"operator": "render", "parallel": true},
+    {"operator": "stitch"}
+  ],
+  "image": {
+    "width": 1920,
+    "height": 1080
+  },
+  "tiles": {
+    "rows": 4,
+    "cols": 4
+  },
+  "workers": 4,
+  "output": "output/final.png"
+}
