@@ -1,8 +1,15 @@
 {
   "pipeline": [
-    {"operator": "frame_split"},
-    {"operator": "render", "parallel": true},
-    {"operator": "stitch"}
+    {
+      "operator": "frame_split"
+    },
+    {
+      "operator": "render",
+      "parallel": true
+    },
+    {
+      "operator": "stitch"
+    }
   ],
   "image": {
     "width": 1920,
@@ -13,5 +20,8 @@
     "cols": 4
   },
   "workers": 4,
-  "output": "output/final.png"
+  "output": "output/final.png",
+  "renderer": {
+    "type": "synthetic"
+  }
 }

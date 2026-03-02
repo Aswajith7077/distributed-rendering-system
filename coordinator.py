@@ -72,6 +72,7 @@ def run_render(
     cols = cols_override or wf["tiles"]["cols"]
     n_workers = workers_override or wf["workers"]
     output_path = wf["output"]
+    renderer_cfg = wf.get("renderer")
 
     tiles_dir = os.path.join(os.path.dirname(output_path), "tiles")
 
@@ -82,9 +83,11 @@ def run_render(
     if verbose:
         print_banner("Distributed Rendering Coordinator")
         print_pipeline(wf)
+        renderer_type = (renderer_cfg or {}).get("type", "synthetic")
         print(f"\n🖼️  Image      : {img_w} × {img_h} px")
         print(f"🔲 Tile grid  : {rows} rows × {cols} cols  →  {rows * cols} tiles")
         print(f"⚙️  Workers    : {n_workers}")
+        print(f"🎨 Renderer   : {renderer_type}")
 
     # ------------------------------------------------------------------
     # STEP 1 — Frame Split Operator
@@ -102,7 +105,10 @@ def run_render(
             f"across {n_workers} worker(s) ..."
         )
 
-    args = [(t, img_w, img_h, tiles_dir) for t in tiles]
+    if renderer_cfg:
+        args = [(t, img_w, img_h, tiles_dir, renderer_cfg) for t in tiles]
+    else:
+        args = [(t, img_w, img_h, tiles_dir) for t in tiles]
 
     t_render_start = time.perf_counter()
 

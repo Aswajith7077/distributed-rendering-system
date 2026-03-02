@@ -1,13 +1,14 @@
 """
 Worker Node
 -----------
-Mimics a "worker VM" from the BigEarth paper.
 Each worker receives a tile descriptor and independently renders its tile.
 
-The renderer simulates a computationally expensive per-pixel operation
-(procedural gradient + noise pattern) without requiring Blender or a GPU.
-This demonstrates that each tile is independently renderable — the core
-principle of data parallelism in sort-last distributed rendering.
+Supports two modes:
+  1. Legacy mode:  render_tile() uses the built-in synthetic renderer
+  2. Backend mode: render_tile_with_backend() uses the pluggable renderer API
+
+The legacy interface is kept for backward compatibility with existing code
+that calls worker.run() directly.
 """
 
 import os
@@ -17,7 +18,7 @@ from PIL import Image
 
 
 # ---------------------------------------------------------------------------
-# Synthetic renderer — simulates costly per-pixel computation
+# Synthetic renderer — simulates costly per-pixel computation (LEGACY)
 # ---------------------------------------------------------------------------
 
 
@@ -51,16 +52,8 @@ def _compute_pixel(x: int, y: int, img_w: int, img_h: int) -> tuple[int, int, in
 
 def render_tile(tile: dict, img_width: int, img_height: int, tiles_dir: str) -> dict:
     """
-    Renders a single tile and saves it as a PNG.
-
-    Args:
-        tile:       Dict with keys: id, x, y, width, height
-        img_width:  Full image width (for normalised coordinate calculation)
-        img_height: Full image height
-        tiles_dir:  Directory to write tile PNG files into
-
-    Returns:
-        Dict with: id, x, y, path, duration_s
+    Renders a single tile using the built-in synthetic renderer.
+    (Legacy interface — kept for backward compat with run_demo.py/benchmark.py)
     """
     t_start = time.perf_counter()
 
@@ -69,7 +62,6 @@ def render_tile(tile: dict, img_width: int, img_height: int, tiles_dir: str) -> 
 
     for py in range(tile["height"]):
         for px in range(tile["width"]):
-            # Global pixel coordinates
             gx = tile["x"] + px
             gy = tile["y"] + py
             pixels[px, py] = _compute_pixel(gx, gy, img_width, img_height)
@@ -89,11 +81,54 @@ def render_tile(tile: dict, img_width: int, img_height: int, tiles_dir: str) -> 
 
 
 # ---------------------------------------------------------------------------
-# Entry point used by coordinator via multiprocessing
+# Backend-aware renderer
+# ---------------------------------------------------------------------------
+
+
+def render_tile_with_backend(
+    tile: dict,
+    img_width: int,
+    img_height: int,
+    tiles_dir: str,
+    renderer,
+) -> dict:
+    """
+    Renders a tile using the pluggable renderer backend.
+
+    Args:
+        tile:       Tile descriptor dict
+        img_width:  Full image width
+        img_height: Full image height
+        tiles_dir:  Output directory for tile PNGs
+        renderer:   A TileRenderer instance (from renderers package)
+
+    Returns:
+        Dict with: id, x, y, path, duration_s
+    """
+    return renderer.render_tile(tile, img_width, img_height, tiles_dir)
+
+
+# ---------------------------------------------------------------------------
+# Entry points used by coordinator / scheduler via multiprocessing
 # ---------------------------------------------------------------------------
 
 
 def run(args: tuple) -> dict:
-    """Unpacks args tuple and calls render_tile. Used as Pool worker target."""
-    tile, img_width, img_height, tiles_dir = args
-    return render_tile(tile, img_width, img_height, tiles_dir)
+    """
+    Unpacks args tuple and calls the appropriate renderer.
+
+    Supports two arg formats:
+        (tile, img_w, img_h, tiles_dir)               → legacy synthetic
+        (tile, img_w, img_h, tiles_dir, renderer_cfg)  → pluggable backend
+    """
+    if len(args) == 5:
+        tile, img_width, img_height, tiles_dir, renderer_cfg = args
+        from renderers import get_renderer
+
+        renderer = get_renderer(renderer_cfg)
+        return render_tile_with_backend(
+            tile, img_width, img_height, tiles_dir, renderer
+        )
+    else:
+        tile, img_width, img_height, tiles_dir = args
+        return render_tile(tile, img_width, img_height, tiles_dir)

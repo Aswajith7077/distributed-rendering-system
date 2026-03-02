@@ -1,30 +1,96 @@
-# Distributed Rendering System
-### A college project implementation of the BigEarth paper
+# Distributed Tile-Based Rendering with Dynamic Task Scheduling
 
-> *"Distributed, Workflow-Driven Rendering of 3D Object Scenes on a Big Data Processing Platform"*
-
----
-
-## What This Project Does
-
-This project implements a simplified version of the **BigEarth distributed rendering pipeline** described in the paper. It demonstrates two core concepts from the paper:
-
-1. **Sort-last data parallelism** — the image is split into tiles; each worker renders its tile independently
-2. **Workflow-driven execution** — the pipeline is described in `workflow.json` and executed by a coordinator, mirroring the Operator → Planner → Executor model
+> **Course:** Parallel & Distributed Computing
+> **Topic:** Distributed tile-based image rendering with DAG-based task scheduling and scalability analysis
 
 ---
 
-## How It Maps to the Paper
+## Abstract
 
-| Paper Concept | This Project |
-|---|---|
-| BigEarth platform | `coordinator.py` (Planner + Executor) |
-| Worker VMs | Python processes via `multiprocessing.Pool` |
-| Blender Cycles renderer | Synthetic per-pixel procedural renderer (`worker.py`) |
-| Frame Split operator | `operators/frame_split.py` |
-| Image Stitch operator | `operators/stitch.py` |
-| Workflow graph (JSON) | `workflow.json` |
-| For-Each parallel node | `Pool.map()` in coordinator |
+Rendering is a computationally intensive workload suitable for parallelisation because each image region (tile) can be computed independently, with no inter-region data dependency. This project implements a distributed tile-based rendering system that decomposes a full-resolution image into a grid of tiles, dispatches each tile to an independent worker process, and aggregates the results. Two scheduling strategies are compared — static (`Pool.map`) and dynamic (pull-based work queue) — and their scalability is evaluated using speedup, parallel efficiency, and Amdahl's Law analysis.
+
+---
+
+## System Architecture
+
+```
+                    ┌─────────────────────────┐
+                    │       Client / CLI       │
+                    │  (coordinator.py /       │
+                    │   scheduler.py /         │
+                    │   benchmark.py)          │
+                    └────────────┬────────────┘
+                                 │
+                    ┌────────────▼────────────┐
+                    │  frame_split operator   │
+                    │  (tile_splitter)        │
+                    │  Decomposes frame into  │
+                    │  R × C tile descriptors │
+                    └────────────┬────────────┘
+                                 │  task queue / Pool.map
+          ┌──────────────────────┼──────────────────────┐
+          │                      │                      │
+ ┌────────▼──────┐      ┌────────▼──────┐     ┌────────▼──────┐
+ │   Worker 1    │      │   Worker 2    │     │   Worker N    │
+ │ renders tile  │      │ renders tile  │     │ renders tile  │
+ └────────┬──────┘      └────────┬──────┘     └────────┬──────┘
+          │                      │                      │
+          └──────────────────────▼──────────────────────┘
+                    ┌────────────────────────┐
+                    │  stitch operator       │
+                    │  (aggregator)          │
+                    │  Assembles tile PNGs   │
+                    │  into final image      │
+                    └────────────────────────┘
+```
+
+---
+
+## DAG Task Graph
+
+The rendering pipeline is modelled as a shallow directed acyclic graph (DAG):
+
+```
+ [Scene Load / Config]
+         │
+         ▼
+ [Tile Generation]          ← serial, O(N) — generates N tile descriptors
+         │
+    ┌────┴──────────────────────────────────┐
+    │ Tile 0 │ Tile 1 │ Tile 2 │ ... │ Tile N │   ← parallel stage
+    └────┬──────────────────────────────────┘
+         │
+         ▼
+ [Image Aggregation]        ← serial, stitch operator
+         │
+         ▼
+     [output.png]
+```
+
+The parallel stage is **embarrassingly parallel**: tiles share no data and can be rendered on independent processes or machines with no synchronisation overhead beyond task dispatch.
+
+---
+
+## Scheduling Strategies
+
+| Strategy | File | Mechanism | Load Balancing |
+|---|---|---|---|
+| Static (Pool.map) | `coordinator.py` | Tasks pre-assigned before execution | No — stragglers block completion |
+| Dynamic (work queue) | `scheduler.py` | Workers pull next available tile when free | Yes — idle workers never stall |
+
+### Dynamic Scheduler Design
+
+```
+ Task Queue (shared)         Workers (p processes)
+ ┌──────────────────┐
+ │ tile_0           │◄── Worker 1 pulls → render → push result
+ │ tile_1           │◄── Worker 2 pulls → render → push result
+ │ ...              │◄── Worker N pulls → render → push result
+ │ SENTINEL (None)  │    (re-enqueued by first worker to see it)
+ └──────────────────┘
+```
+
+Workers emit a **poison pill** (sentinel) back to the queue upon exit so subsequent workers also terminate cleanly — a standard distributed systems shutdown pattern.
 
 ---
 
@@ -33,20 +99,26 @@ This project implements a simplified version of the **BigEarth distributed rende
 ```
 package/
 │
-├── workflow.json           ← Workflow definition (operators, image size, tile grid)
-├── coordinator.py          ← Master node: reads workflow, splits, dispatches, stitches
-├── worker.py               ← Worker node: renders a single tile
-├── run_demo.py             ← Scaling experiment (1 → 16 workers, prints speedup table)
+├── coordinator.py      ← Static scheduler  (Pool.map-based)
+├── scheduler.py        ← Dynamic scheduler (pull-based Queue)
+├── benchmark.py        ← Performance evaluation + matplotlib plots
+├── run_demo.py         ← Quick scaling demo (ASCII table + bar chart)
+├── workflow.json       ← Pipeline definition (DAG config)
 ├── requirements.txt
 │
 ├── operators/
-│   ├── frame_split.py      ← Divides image into N×M tile grid
-│   └── stitch.py           ← Assembles tiles into final image
+│   ├── frame_split.py  ← Tile decomposition operator
+│   └── stitch.py       ← Image aggregation operator
 │
-└── output/                 ← Generated at runtime
-    ├── final.png           ← Final stitched image
-    └── tiles/
-        └── tile_XXXX.png   ← Individual tile outputs
+└── output/
+    ├── final.png           ← Stitched output image
+    ├── benchmark_results.csv
+    ├── tiles/
+    │   └── tile_XXXX.png
+    └── plots/
+        ├── speedup.png
+        ├── efficiency.png
+        └── time.png
 ```
 
 ---
@@ -61,24 +133,66 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Single render (uses workflow.json config)
+### Run a single render (static scheduler)
 ```bash
 python coordinator.py
-```
-
-### Override workers / tile grid from the command line
-```bash
 python coordinator.py --workers 8 --rows 4 --cols 4
 ```
 
-### Full scaling experiment (replicates paper's experiment)
+### Run with the dynamic work-queue scheduler
+```bash
+python scheduler.py
+python scheduler.py --workers 8 --rows 4 --cols 4
+```
+
+### Quick scaling demo (ASCII table + bar chart)
 ```bash
 python run_demo.py
 ```
 
+### Full benchmark with plots and CSV
+```bash
+# HD resolution (fast)
+python benchmark.py --resolution hd --workers 1 2 4 8 16
+
+# Full-HD
+python benchmark.py --resolution fhd --workers 1 2 4 8 --repeats 3
+```
+
 ---
 
-## Example Output
+## Performance Metrics
+
+### Speedup
+```
+S(p) = T(1) / T(p)
+```
+
+### Parallel Efficiency
+```
+E(p) = S(p) / p × 100%
+```
+
+### Amdahl's Law (theoretical upper bound)
+```
+S_amdahl(p) = 1 / (f_s + (1 - f_s) / p)
+
+where  f_s = serial fraction of the workload
+       p   = number of processors
+```
+
+The serial fraction `f_s` includes the tile-split step, stitch step, and inter-process communication overhead. Even a small `f_s` limits maximum achievable speedup (Amdahl's Law).
+
+### Overhead
+```
+O(p) = p × T(p) − T(1)
+```
+
+Overhead grows with `p` due to process spawn cost, IPC, and file I/O for tile images.
+
+---
+
+## Example Results
 
 ```
   Workers  |  Time (s)  |  Speedup  |  Efficiency
@@ -90,16 +204,21 @@ python run_demo.py
        16  |      5.92  |    7.12x  |       44.5%
 ```
 
-Non-linear scaling matches the paper's findings — overhead from task dispatching and I/O limits perfect (linear) speedup.
+Sub-linear scaling is expected and consistent with Amdahl's Law — the serial fraction (tile split + stitch + IPC) limits perfect linear speedup.
 
 ---
 
-## Key Concepts Demonstrated
+## Key PDC Concepts Demonstrated
 
-| Concept | Where |
+| Concept | Where in Code |
 |---|---|
-| Data parallelism | Each tile rendered by an independent worker |
-| Workflow abstraction | `workflow.json` describes pipeline without code changes |
-| Operator modularity | `frame_split` and `stitch` are plug-and-play modules |
-| Scalability | `--workers N` to test any parallelism level |
-| Sort-last rendering | Tiles assembled post-render by stitch operator |
+| Task parallelism | Each tile → independent task |
+| Embarrassingly parallel workload | No inter-tile data dependency |
+| Workload partitioning | `operators/frame_split.py` |
+| Static scheduling | `coordinator.py` (Pool.map) |
+| Dynamic scheduling / load balancing | `scheduler.py` (Queue + pull) |
+| DAG-based pipeline | `workflow.json` |
+| Scalability analysis | `benchmark.py` |
+| Amdahl's Law | `benchmark.py` (overlay on speedup plot) |
+| Straggler mitigation | `scheduler.py` (dynamic queue) |
+| Distributed aggregation | `operators/stitch.py` |
