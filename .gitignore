@@ -3,6 +3,8 @@ __pycache__/
 output/
 
 *.pyc
+**/.env
+**/.env.local
 
-
-.env
+node_modules/
+.next
