@@ -26,5 +26,7 @@ class BaseManager(ABC):
         rows_override: int | None = None,
         cols_override: int | None = None,
         verbose: bool = True,
+        on_job_start=None,
+        on_tile_complete=None,
     ) -> dict:
         pass

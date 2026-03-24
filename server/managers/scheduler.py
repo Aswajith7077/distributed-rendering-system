@@ -73,6 +73,7 @@ class Scheduler(BaseManager):
         tiles_dir: str,
         renderer_cfg: dict | None = None,
         verbose: bool = False,
+        on_tile_complete=None,
     ) -> tuple[list[dict], float]:
         """
         Dispatches tiles using a shared multiprocessing.Queue.
@@ -109,6 +110,8 @@ class Scheduler(BaseManager):
         for _ in range(len(tiles)):
             result = self.result_queue.get()
             tile_results.append(result)
+            if on_tile_complete:
+                on_tile_complete(result['duration_s'])
             if verbose:
                 print(
                     f"    [dynamic] tile {result['id']:04d} done  ({result['duration_s']:.3f}s)"
@@ -132,6 +135,8 @@ class Scheduler(BaseManager):
         rows_override: int | None = None,
         cols_override: int | None = None,
         verbose: bool = True,
+        on_job_start=None,
+        on_tile_complete=None,
     ) -> dict:
         """
         Drop-in replacement for coordinator.run_render() using dynamic scheduling.
@@ -161,6 +166,9 @@ class Scheduler(BaseManager):
             print(f"  Renderer   : {renderer_type}")
 
         tiles = split(img_w, img_h, rows, cols)
+        
+        if on_job_start:
+            on_job_start(len(tiles))
 
         if verbose:
             print(f"\n[Step 1] frame_split  -> {len(tiles)} tile descriptors generated")
@@ -174,6 +182,7 @@ class Scheduler(BaseManager):
             tiles_dir=tiles_dir,
             renderer_cfg=renderer_cfg,
             verbose=verbose,
+            on_tile_complete=on_tile_complete,
         )
 
         if verbose:

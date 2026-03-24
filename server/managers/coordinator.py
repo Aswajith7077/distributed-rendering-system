@@ -27,7 +27,7 @@ class Coordinator(BaseManager):
             print(f"   Step {i}: [{op['operator']}]{parallel_tag}")
 
 
-    def _parallel_render(self, tiles, img_w, img_h, tiles_dir, renderer_cfg, n_workers, verbose):
+    def _parallel_render(self, tiles, img_w, img_h, tiles_dir, renderer_cfg, n_workers, verbose, on_tile_complete=None):
         if verbose:
             print(
                 f"[Step 2] render     → dispatching {len(tiles)} tile tasks "
@@ -40,13 +40,22 @@ class Coordinator(BaseManager):
             args = [(t, img_w, img_h, tiles_dir) for t in tiles]
 
         t_render_start = time.perf_counter()
+        
+        tile_results = []
 
         if n_workers == 1:
             # Single-worker baseline — no Pool overhead
-            tile_results = [worker.run(a) for a in args]
+            for a in args:
+                res = worker.run(a)
+                if on_tile_complete:
+                    on_tile_complete(res['duration_s'])
+                tile_results.append(res)
         else:
             with Pool(processes=n_workers) as pool:
-                tile_results = pool.map(worker.run, args)
+                for res in pool.imap_unordered(worker.run, args):
+                    if on_tile_complete:
+                        on_tile_complete(res['duration_s'])
+                    tile_results.append(res)
 
         t_render_end = time.perf_counter()
         render_time = t_render_end - t_render_start
@@ -60,6 +69,8 @@ class Coordinator(BaseManager):
         rows_override: int | None = None,
         cols_override: int | None = None,
         verbose: bool = True,
+        on_job_start=None,
+        on_tile_complete=None,
     ) -> dict:
         """
         Executes the full rendering pipeline and returns a result dict.
@@ -92,11 +103,14 @@ class Coordinator(BaseManager):
         if verbose:
             print("\n[Step 1] frame_split → computing tile descriptors ...")
         tiles = split(img_w, img_h, rows, cols)
+        
+        if on_job_start:
+            on_job_start(len(tiles))
 
         # ------------------------------------------------------------------
         # STEP 2 — Parallel Render (for-each)
         # ------------------------------------------------------------------
-        tile_results, render_time = self._parallel_render(tiles, img_w, img_h, tiles_dir, renderer_cfg, n_workers, verbose)
+        tile_results, render_time = self._parallel_render(tiles, img_w, img_h, tiles_dir, renderer_cfg, n_workers, verbose, on_tile_complete=on_tile_complete)
 
         # ------------------------------------------------------------------
         # STEP 3 — Stitch Operator

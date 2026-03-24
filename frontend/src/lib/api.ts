@@ -101,3 +101,24 @@ export function getDownloadUrl(jobId: string): string {
 export function getFileUrl(jobId: string, filepath: string): string {
   return `${API_BASE}/api/files/${jobId}/${filepath}`;
 }
+
+export async function getHealth(): Promise<{
+  status: string;
+  timestamp: string;
+  cpu: { percent: number };
+  memory: { total: number; available: number; percent: number; used: number; free: number };
+  disk: { total: number; used: number; free: number; percent: number };
+  gpu: { available: boolean; gpus: Array<{ name: string; utilization_percent: number; memory_used_mb: number; memory_total_mb: number }> };
+  uptime_seconds: number;
+}> {
+  return fetchJSON(`${API_BASE}/api/health`);
+}
+
+export async function getBenchmark(): Promise<{
+  p_fraction: number;
+  base_time: number;
+  actual_data: Array<{ workers: number; avg_time: number }>;
+  theoretical_data: Array<{ workers: number; theoretical_speedup: number; theoretical_time: number }>;
+}> {
+  return fetchJSON(`${API_BASE}/api/benchmark`);
+}

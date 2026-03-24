@@ -13,11 +13,18 @@ from datetime import datetime
 from typing import Optional
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from PIL import Image
+import asyncio
+import psutil
+import time
+
+from metrics import metrics_aggregator
+
+SERVER_START_TIME = time.time()
 
 app = FastAPI(title="Distributed Tile Renderer API", version="1.0.0")
 
@@ -74,6 +81,41 @@ class JobListResponse(BaseModel):
 jobs_db: dict[str, dict] = {}
 
 
+class PubSub:
+    def __init__(self):
+        self.queues = []
+        self.loop = None
+
+    def subscribe(self):
+        q = asyncio.Queue()
+        self.queues.append(q)
+        return q
+
+    def unsubscribe(self, q):
+        if q in self.queues:
+            self.queues.remove(q)
+
+    def publish(self, message: dict):
+        if not self.loop:
+            return
+        async def _publish():
+            for q in self.queues:
+                await q.put(json.dumps(message))
+        asyncio.run_coroutine_threadsafe(_publish(), self.loop)
+
+pubsub = PubSub()
+
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        loop = asyncio.get_running_loop()
+        pubsub.loop = loop
+        metrics_aggregator.set_loop(loop)
+    except RuntimeError:
+        pass
+
+
 def save_workflow_to_json(config: WorkflowConfig) -> dict:
     """Convert workflow config to workflow.json format."""
     renderer_cfg = {"type": config.renderer_type}
@@ -114,6 +156,7 @@ def run_render_job(job_id: str, workflow: dict, render_mode: str):
     try:
         jobs_db[job_id]["status"] = "running"
         jobs_db[job_id]["started_at"] = datetime.now().isoformat()
+        pubsub.publish({"type": "job_updated", "job": jobs_db[job_id]})
         
         import sys
         sys.path.insert(0, str(BASE_DIR.parent / "server"))
@@ -146,12 +189,22 @@ def run_render_job(job_id: str, workflow: dict, render_mode: str):
             workflow["output"] = f"{output_dir}/final.png"
             tiles_dir = f"{output_dir}/tiles"
             
+            def handle_job_start(total_tiles):
+                metrics_aggregator.record_job_start(workers=workflow.get("workers", 1), total_tiles=total_tiles)
+                
+            def handle_tile_complete(duration):
+                metrics_aggregator.record_tile_complete(duration)
+            
             result = manager.run_render(
                 workers_override=workflow.get("workers"),
                 rows_override=workflow.get("tiles", {}).get("rows"),
                 cols_override=workflow.get("tiles", {}).get("cols"),
                 verbose=False,
+                on_job_start=handle_job_start,
+                on_tile_complete=handle_tile_complete
             )
+            
+            metrics_aggregator.record_job_end(workers=workflow.get("workers", 1))
             
             jobs_db[job_id]["status"] = "completed"
             jobs_db[job_id]["completed_at"] = datetime.now().isoformat()
@@ -165,6 +218,7 @@ def run_render_job(job_id: str, workflow: dict, render_mode: str):
                 "tiles_dir": tiles_dir,
             }
             jobs_db[job_id]["workflow"] = workflow
+            pubsub.publish({"type": "job_updated", "job": jobs_db[job_id]})
             
         finally:
             os.unlink(temp_workflow_path)
@@ -175,6 +229,8 @@ def run_render_job(job_id: str, workflow: dict, render_mode: str):
         jobs_db[job_id]["error"] = str(e)
         jobs_db[job_id]["traceback"] = traceback.format_exc()
         jobs_db[job_id]["failed_at"] = datetime.now().isoformat()
+        metrics_aggregator.record_job_end(workers=workflow.get("workers", 1))
+        pubsub.publish({"type": "job_updated", "job": jobs_db[job_id]})
 
 
 @app.get("/")
@@ -182,9 +238,112 @@ async def root():
     return {"message": "Distributed Tile Renderer API", "version": "1.0.0"}
 
 
+import subprocess
+
+def get_gpu_info():
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            gpus = []
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    parts = line.split(',')
+                    if len(parts) == 4:
+                        name, util, mem_used, mem_total = parts
+                        gpus.append({
+                            "name": name.strip(),
+                            "utilization_percent": float(util.strip() or 0),
+                            "memory_used_mb": float(mem_used.strip() or 0),
+                            "memory_total_mb": float(mem_total.strip() or 0)
+                        })
+            return {"available": len(gpus) > 0, "gpus": gpus}
+    except Exception:
+        pass
+    
+    return {"available": False, "gpus": []}
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    memory = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+    uptime = time.time() - SERVER_START_TIME
+    gpu_info = get_gpu_info()
+    
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "cpu": {
+            "percent": cpu_percent,
+        },
+        "memory": {
+            "total": memory.total,
+            "available": memory.available,
+            "percent": memory.percent,
+            "used": memory.used,
+            "free": memory.free
+        },
+        "disk": {
+            "total": disk.total,
+            "used": disk.used,
+            "free": disk.free,
+            "percent": disk.percent
+        },
+        "gpu": gpu_info,
+        "uptime_seconds": uptime
+    }
+
+@app.get("/api/benchmark")
+async def get_benchmark():
+    """
+    Calculate and return Amdahl's Law benchmark stats based on past completed jobs.
+    S(s) = 1 / ((1 - p) + (p / s))
+    """
+    completed_jobs = [j for j in jobs_db.values() if j["status"] == "completed" and j.get("result", {}).get("render_time_s")]
+    
+    # Group by workers
+    worker_times = {}
+    for job in completed_jobs:
+        workers = job["result"]["workers"]
+        duration = job["result"]["render_time_s"]
+        if workers not in worker_times:
+            worker_times[workers] = []
+        worker_times[workers].append(duration)
+        
+    actual_data = []
+    for w, times in worker_times.items():
+        actual_data.append({"workers": w, "avg_time": sum(times) / len(times)})
+    
+    actual_data.sort(key=lambda x: x["workers"])
+    
+    # We estimate parallelizable portion `p`. For rendering, it's typically highly parallel.
+    # Let's say 0.95 (95%)
+    p_estimate = 0.95
+    base_time = actual_data[0]["avg_time"] if actual_data else 100.0 # fallback base
+    
+    theoretical_data = []
+    max_workers_to_plot = max([d["workers"] for d in actual_data]) if actual_data else 32
+    max_workers_to_plot = max(max_workers_to_plot, 16) # Plot at least up to 16
+    
+    for s in range(1, max_workers_to_plot + 1):
+        # Amdahl's law formula
+        speedup = 1.0 / ((1.0 - p_estimate) + (p_estimate / s))
+        theoretical_time = base_time / speedup
+        theoretical_data.append({
+            "workers": s,
+            "theoretical_speedup": speedup,
+            "theoretical_time": theoretical_time
+        })
+        
+    return {
+        "p_fraction": p_estimate,
+        "base_time": base_time,
+        "actual_data": actual_data,
+        "theoretical_data": theoretical_data
+    }
 
 
 @app.get("/api/renderers")
@@ -272,6 +431,8 @@ async def create_job(config: WorkflowConfig, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(run_render_job, job_id, workflow, config.render_mode)
     
+    pubsub.publish({"type": "job_created", "job": jobs_db[job_id]})
+    
     return JobResponse(**jobs_db[job_id])
 
 
@@ -286,6 +447,7 @@ async def delete_job(job_id: str):
         shutil.rmtree(job_output_dir)
     
     del jobs_db[job_id]
+    pubsub.publish({"type": "job_deleted", "job_id": job_id})
     return {"message": "Job deleted", "job_id": job_id}
 
 
@@ -388,6 +550,70 @@ async def get_tiles_preview(job_id: str):
             continue
     
     return {"job_id": job_id, "tiles": tiles}
+
+
+@app.get("/api/events")
+async def get_events(request: Request):
+    q = pubsub.subscribe()
+    async def event_generator():
+        try:
+            while True:
+                try:
+                    message = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield f"data: {message}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            pubsub.unsubscribe(q)
+            
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive"
+        }
+    )
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/ws/health")
+async def websocket_health(websocket: WebSocket):
+    await websocket.accept()
+    q = asyncio.Queue()
+    metrics_aggregator.subscribe(q)
+    
+    # Send initial snapshot immediately
+    initial_snapshot = metrics_aggregator.get_snapshot()
+    await websocket.send_json(initial_snapshot)
+    
+    # Also set up a periodic task to force updates if there are no events (e.g., system idle)
+    # The aggregator doesn't trigger if nothing happens.
+    async def ping_idle():
+        while True:
+            await asyncio.sleep(2.0)
+            snapshot = metrics_aggregator.get_snapshot()
+            try:
+                await websocket.send_json(snapshot)
+            except Exception:
+                break
+
+    ping_task = asyncio.create_task(ping_idle())
+
+    try:
+        while True:
+            # Wait for events from the aggregator queue
+            message_str = await q.get()
+            await websocket.send_text(message_str)
+    except WebSocketDisconnect:
+        pass
+    except asyncio.CancelledError:
+        pass
+    finally:
+        ping_task.cancel()
+        metrics_aggregator.unsubscribe(q)
 
 
 if __name__ == "__main__":

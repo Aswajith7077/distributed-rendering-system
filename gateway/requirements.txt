@@ -1,0 +1,6 @@
+fastapi[standard]
+redis
+minio
+python-dotenv
+python-multipart
+psutil

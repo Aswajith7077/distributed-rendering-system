@@ -1,0 +1,86 @@
+services:
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s   # give redis time to boot before health checks begin
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  gateway:
+    build: ./gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy   # ← waits for redis ping to succeed
+      minio:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password123
+
+  worker1:
+    build: ./slave
+    ports:
+      - "8001:8000"
+    depends_on:
+      redis:
+        condition: service_healthy   # ← same here
+      minio:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password123
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  worker2:
+    build: ./slave
+    ports:
+      - "8002:8000"
+    depends_on:
+      redis:
+        condition: service_healthy   # ← same here
+      minio:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password123
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  minio_data:

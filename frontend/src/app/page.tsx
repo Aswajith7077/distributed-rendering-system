@@ -91,8 +91,43 @@ export default function Home() {
   useEffect(() => {
     fetchRenderers();
     fetchJobs();
-    const interval = setInterval(fetchJobs, 3000);
-    return () => clearInterval(interval);
+    
+    const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/events`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "job_created" || data.type === "job_updated") {
+          setJobs((prevJobs) => {
+            const index = prevJobs.findIndex(j => j.job_id === data.job.job_id);
+            if (index >= 0) {
+              const newJobs = [...prevJobs];
+              newJobs[index] = data.job;
+              return newJobs;
+            } else {
+              return [data.job, ...prevJobs];
+            }
+          });
+          
+          setSelectedJob((prevSelected) => {
+            if (prevSelected?.job_id === data.job.job_id) {
+              if (data.job.status === "completed" && prevSelected.status !== "completed") {
+                getTilesPreview(data.job.job_id).then(res => setTilePreviews(res.tiles)).catch(console.error);
+              }
+              return data.job;
+            }
+            return prevSelected;
+          });
+        } else if (data.type === "job_deleted") {
+          setJobs(prev => prev.filter(j => j.job_id !== data.job_id));
+          setSelectedJob(prev => prev?.job_id === data.job_id ? null : prev);
+        }
+      } catch (err) {
+        // Ignore keepalive messages
+      }
+    };
+
+    return () => eventSource.close();
   }, [fetchRenderers, fetchJobs]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -120,6 +155,9 @@ export default function Home() {
   };
 
   const handleViewResults = async (job: Job) => {
+    if (selectedJob?.job_id !== job.job_id) {
+      setTilePreviews([]);
+    }
     setSelectedJob(job);
     if (job.status === "completed") {
       setLoadingTiles(true);
