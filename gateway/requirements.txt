@@ -4,3 +4,4 @@ minio
 python-dotenv
 python-multipart
 psutil
+ruff

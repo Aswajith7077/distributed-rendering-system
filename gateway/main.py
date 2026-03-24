@@ -7,7 +7,6 @@ from utils import is_valid_blend
 from service import minio_service
 from service.task_splitter import split_and_dispatch_task
 
-from models import TaskModel
 import os
 import psutil
 import time
@@ -20,7 +19,6 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app = FastAPI(title="Distributed Tile Renderer API", version="1.0.0")
 
 
-
 @app.get("/")
 async def root():
     return {"message": "Distributed Tile Renderer API", "version": "1.0.0"}
@@ -30,9 +28,9 @@ async def root():
 async def health_check():
     cpu_percent = psutil.cpu_percent(interval=0.1)
     memory = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
+    disk = psutil.disk_usage("/")
     uptime = time.time() - SERVER_START_TIME
-    
+
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -44,16 +42,17 @@ async def health_check():
             "available": memory.available,
             "percent": memory.percent,
             "used": memory.used,
-            "free": memory.free
+            "free": memory.free,
         },
         "disk": {
             "total": disk.total,
             "used": disk.used,
             "free": disk.free,
-            "percent": disk.percent
+            "percent": disk.percent,
         },
-        "uptime_seconds": uptime
+        "uptime_seconds": uptime,
     }
+
 
 @app.get("/api/renderers")
 async def get_available_renderers():
@@ -65,7 +64,7 @@ async def get_available_renderers():
                 "name": "Synthetic (Tile-based)",
                 "description": "Procedural gradient renderer - no external dependencies",
                 "requires_scene_file": False,
-                "options": []
+                "options": [],
             },
             {
                 "id": "blender",
@@ -74,39 +73,47 @@ async def get_available_renderers():
                 "requires_scene_file": True,
                 "options": [
                     {"id": "blender_scene_file", "name": "Scene File", "type": "file"},
-                    {"id": "blender_engine", "name": "Render Engine", "type": "select", "options": ["CYCLES", "BLENDER_EEVEE_NEXT"]},
+                    {
+                        "id": "blender_engine",
+                        "name": "Render Engine",
+                        "type": "select",
+                        "options": ["CYCLES", "BLENDER_EEVEE_NEXT"],
+                    },
                     {"id": "blender_samples", "name": "Samples", "type": "number"},
-                    {"id": "blender_device", "name": "Device", "type": "select", "options": ["CPU", "GPU"]}
-                ]
-            }
+                    {
+                        "id": "blender_device",
+                        "name": "Device",
+                        "type": "select",
+                        "options": ["CPU", "GPU"],
+                    },
+                ],
+            },
         ]
     }
 
 
 @app.post("/api/upload/")
-async def upload_file(
-    file: UploadFile = File(...),
-    config: str = Form(...)
-):
+async def upload_file(file: UploadFile = File(...), config: str = Form(...)):
     if not is_blend_file(file.filename):
         raise HTTPException(status_code=400, detail="Only .blend files are allowed")
-    
+
     if not is_valid_blend(file):
         raise HTTPException(status_code=400, detail="Invalid .blend file")
-        
+
     try:
         config_data = json.loads(config)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid config JSON format")
-    
+
     file_path = os.path.join(UPLOAD_DIR, file.filename)
+    print("File path: ", file_path)
     data = await file.read()
 
     try:
         minio_service.upload_bytes(
             data=data,
             object_name=file.filename,
-            content_type=file.content_type or "application/octet-stream"
+            content_type=file.content_type or "application/octet-stream",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e.args))
@@ -114,8 +121,10 @@ async def upload_file(
     # Trigger task splitter
     split_and_dispatch_task(filename=file.filename, config=config_data)
 
-    return JSONResponse(content={
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "saved_to": file_path
-    })
+    return JSONResponse(
+        content={
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "saved_to": file_path,
+        }
+    )

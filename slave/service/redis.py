@@ -15,8 +15,10 @@ class RedisStreamWorker:
             redis_host = os.environ.get("REDIS_HOST", "redis")
             redis_port = os.environ.get("REDIS_PORT", "6379")
             redis_url = f"redis://{redis_host}:{redis_port}"
-        
-        self.redis = Redis.from_url(redis_url, decode_responses=True,max_connections = 50)
+
+        self.redis = Redis.from_url(
+            redis_url, decode_responses=True, max_connections=50
+        )
         self.consumer_name = f"{socket.gethostname()}-{id(self)}"
 
     async def setup_group(self):

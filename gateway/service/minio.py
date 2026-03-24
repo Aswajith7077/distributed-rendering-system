@@ -10,13 +10,10 @@ class MinioService:
         access_key: str = "admin",
         secret_key: str = "password123",
         bucket_name: str = "blender-files",
-        secure: bool = False
+        secure: bool = False,
     ):
         self.client = Minio(
-            endpoint,
-            access_key=access_key,
-            secret_key=secret_key,
-            secure=secure
+            endpoint, access_key=access_key, secret_key=secret_key, secure=secure
         )
         self.bucket_name = bucket_name
 
@@ -26,7 +23,9 @@ class MinioService:
         if not self.client.bucket_exists(self.bucket_name):
             self.client.make_bucket(self.bucket_name)
 
-    def upload_file(self, file_obj, object_name: str, content_type: str = "application/octet-stream"):
+    def upload_file(
+        self, file_obj, object_name: str, content_type: str = "application/octet-stream"
+    ):
         """
         Upload file-like object (UploadFile.file or BytesIO)
         """
@@ -40,18 +39,20 @@ class MinioService:
                 object_name=object_name,
                 data=file_obj,
                 length=file_size,
-                content_type=content_type
+                content_type=content_type,
             )
 
-            return {
-                "bucket": self.bucket_name,
-                "object_name": object_name
-            }
+            return {"bucket": self.bucket_name, "object_name": object_name}
 
         except S3Error as e:
             raise Exception(f"MinIO upload failed: {str(e)}")
 
-    def upload_bytes(self, data: bytes, object_name: str, content_type: str = "application/octet-stream"):
+    def upload_bytes(
+        self,
+        data: bytes,
+        object_name: str,
+        content_type: str = "application/octet-stream",
+    ):
         """
         Upload raw bytes
         """
@@ -63,13 +64,10 @@ class MinioService:
                 object_name=object_name,
                 data=byte_stream,
                 length=len(data),
-                content_type=content_type
+                content_type=content_type,
             )
 
-            return {
-                "bucket": self.bucket_name,
-                "object_name": object_name
-            }
+            return {"bucket": self.bucket_name, "object_name": object_name}
 
         except S3Error as e:
             raise Exception(f"MinIO upload failed: {str(e)}")
@@ -79,10 +77,7 @@ class MinioService:
         Generate a presigned URL (temporary access)
         """
         try:
-            url = self.client.presigned_get_object(
-                self.bucket_name,
-                object_name
-            )
+            url = self.client.presigned_get_object(self.bucket_name, object_name)
             return url
         except S3Error as e:
             raise Exception(f"Failed to generate URL: {str(e)}")

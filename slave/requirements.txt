@@ -3,3 +3,4 @@ redis
 asyncio
 minio
 python-dotenv
+ruff

@@ -5,13 +5,12 @@ from enums import JobStatus
 import uuid
 
 
-
 class RenderJob(BaseModel):
     job_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
     # MinIO reference
     input_bucket: str
-    input_object: str   # path to .blend file
+    input_object: str  # path to .blend file
 
     # Frame range
     start_frame: int

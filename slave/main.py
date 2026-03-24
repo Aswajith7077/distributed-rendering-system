@@ -8,9 +8,8 @@ worker_task = None
 worker = None  # ← don't initialize at module level
 
 
-
 @asynccontextmanager
-async def lifespan(app:FastAPI):
+async def lifespan(app: FastAPI):
     global worker_task, worker
 
     print("[FASTAPI] Lifespan starting...")  # ← add this to confirm lifespan runs
@@ -25,6 +24,7 @@ async def lifespan(app:FastAPI):
     except Exception as e:
         print(f"[FASTAPI] FATAL: Worker setup failed: {e}")
         import traceback
+
         traceback.print_exc()
         raise
 
@@ -36,6 +36,7 @@ async def lifespan(app:FastAPI):
         except Exception as e:
             print(f"[WORKER CRASH] Unhandled exception: {e}")
             import traceback
+
             traceback.print_exc()
 
     worker_task = asyncio.create_task(run_worker())
@@ -48,12 +49,13 @@ async def lifespan(app:FastAPI):
         await worker_task
     except asyncio.CancelledError:
         print("[FASTAPI] Worker stopped cleanly")
-    
+
     if worker:
         await worker.close()
 
 
-app = FastAPI(title="Render Slave API",lifespan = lifespan)
+app = FastAPI(title="Render Slave API", lifespan=lifespan)
+
 
 @app.websocket("/health")
 async def health_endpoint(websocket: WebSocket):
@@ -65,17 +67,18 @@ async def health_endpoint(websocket: WebSocket):
         while True:
             # Wait for any message from the client (e.g., a ping)
             data = await websocket.receive_text()
-            
+
             # Send back the health status
             # You can extend this to include actual metrics like CPU, Memory usage, etc.
             health_status = {
                 "status": "healthy",
                 "message": "Slave node is running",
-                "received_ping": data
+                "received_ping": data,
             }
             await websocket.send_json(health_status)
     except WebSocketDisconnect:
         print("Client disconnected from health testing WebSocket.")
+
 
 @app.post("/render_callback")
 async def render_callback():
@@ -85,6 +88,7 @@ async def render_callback():
     # TODO: Implement taking the rendered result and updating local state or notifying the master
     return {"status": "success", "message": "Render callback received"}
 
+
 @app.get("/benchmark")
 async def benchmark():
     """
@@ -92,6 +96,7 @@ async def benchmark():
     """
     # TODO: Implement retrieving benchmark metrics or running a quick benchmark
     return {"status": "success", "benchmark_score": 100}
+
 
 # if __name__ == "__main__":
 #     import uvicorn

@@ -10,7 +10,7 @@ class RenderJob(BaseModel):
 
     # MinIO reference
     input_bucket: str
-    input_object: str   # path to .blend file
+    input_object: str  # path to .blend file
 
     # Frame range
     start_frame: int

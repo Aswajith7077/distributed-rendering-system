@@ -1,6 +1,4 @@
 from .task import RenderJob
 
 
-__all__ = [
-    'RenderJob'
-]
+__all__ = ["RenderJob"]

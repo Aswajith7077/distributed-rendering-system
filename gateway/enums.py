@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class RenderEngine(str, Enum):
     CYCLES = "CYCLES"
     EEVEE = "BLENDER_EEVEE"
