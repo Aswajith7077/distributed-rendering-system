@@ -31,6 +31,6 @@ def split_and_dispatch_task(job_id: str, filename: str, config: dict, object_nam
         redis_service.add_job(
             payload=task.model_dump(mode="json"), job_type=task.engine.value
         )
-    
+
     # Store total frames in Redis to track job completion
     redis_service.redis.set(f"job:{job_id}:total_frames", total_frames)

@@ -5,7 +5,6 @@ import os
 from redis.asyncio import Redis
 import redis.exceptions
 import logging
-from renderers import blender_renderer
 from dotenv import load_dotenv
 
 from models import Acknowledgement
@@ -93,7 +92,7 @@ class RedisStreamWorker:
         # Import here to avoid circular imports
         from renderers.blender import BlenderRenderer
         from service import minio_service
-        
+
         renderer = BlenderRenderer(minio_service)
         result = renderer.process_job(render_payload)
         log.info(f"[JOB] Result: {result}")

@@ -16,22 +16,25 @@ import logging
 from contextlib import asynccontextmanager
 from service.redis_listener import RedisStatusStreamListener
 
-import logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 log = logging.getLogger(__name__)
 
 SERVER_START_TIME = time.time()
 UPLOAD_DIR = "uploads"
 listener_task = None
-listener = None 
+listener = None
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global listener_task, listener
 
-    print(f"[FASTAPI] Lifespan starting... (log level: {logging.getLevelName(log.getEffectiveLevel())})", flush=True)
+    print(
+        f"[FASTAPI] Lifespan starting... (log level: {logging.getLevelName(log.getEffectiveLevel())})",
+        flush=True,
+    )
     log.info("[FASTAPI] Lifespan starting...")
 
     async def run_listener(listener_instance):
@@ -56,7 +59,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Distributed Tile Renderer API", version="1.0.0",lifespan = lifespan)
+app = FastAPI(title="Distributed Tile Renderer API", version="1.0.0", lifespan=lifespan)
 
 
 @app.get("/")
@@ -147,8 +150,9 @@ async def upload_file(file: UploadFile = File(...), config: str = Form(...)):
 
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     data = await file.read()
-    
+
     import uuid
+
     job_id = str(uuid.uuid4())
     object_name = f"jobs/{job_id}/input/scene.blend"
 
@@ -162,7 +166,12 @@ async def upload_file(file: UploadFile = File(...), config: str = Form(...)):
         raise HTTPException(status_code=500, detail=str(e.args))
 
     # Trigger task splitter
-    split_and_dispatch_task(job_id=job_id, filename=file.filename, config=config_data, object_name=object_name)
+    split_and_dispatch_task(
+        job_id=job_id,
+        filename=file.filename,
+        config=config_data,
+        object_name=object_name,
+    )
 
     return JSONResponse(
         content={

@@ -46,7 +46,7 @@ class BlenderRenderer:
                         object_name=object_name,
                         content_type="image/png",
                     )
-            
+
             result = {"status": "done", "job_id": job.job_id}
 
         except Exception as e:
@@ -56,7 +56,7 @@ class BlenderRenderer:
         finally:
             if os.path.exists(local_dir):
                 shutil.rmtree(local_dir)
-        
+
         return Acknowledgement(**result)
 
     def render_range(self, local_blend, output_dir, job):

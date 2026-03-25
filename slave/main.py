@@ -1,7 +1,6 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 from service import RedisStreamWorker
-from loggers import setup_logging
 import logging
 import asyncio
 
