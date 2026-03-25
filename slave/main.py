@@ -1,6 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 from service import RedisStreamWorker
+from loggers import setup_logging
 import logging
 import asyncio
 
@@ -8,6 +9,7 @@ import asyncio
 worker_task = None
 worker = None  # ← don't initialize at module level
 
+# setup_logging()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 

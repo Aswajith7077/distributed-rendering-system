@@ -11,11 +11,15 @@ class BlenderRenderer:
     def __init__(self, minio_service):
         self.minio = minio_service
 
-    def process_job(self, job: RenderJob):
+    def process_job(self, job: dict):
+        job = RenderJob(**job)
         object_name = f"jobs/{job.job_id}/input/scene.blend"
         local_dir = f"/tmp/{job.job_id}"
+        # Use proper path joining for cross-platform compatibility
         local_blend = os.path.join(local_dir, "scene.blend")
         output_dir = os.path.join(local_dir, "output")
+
+        result = None
 
         os.makedirs(output_dir, exist_ok=True)
         log.info(f"Created local directories: {local_dir}")
@@ -41,10 +45,18 @@ class BlenderRenderer:
                         object_name=object_name,
                         content_type="image/png",
                     )
+            
+            result = {"status": "done", "result": {"job_id": job.job_id}}
+
+        except Exception as e:
+            log.error(f"Error processing job: {e}")
+            result = {"status": "failed", "error": str(e)}
 
         finally:
             if os.path.exists(local_dir):
                 shutil.rmtree(local_dir)
+        
+        return result
 
     def render_range(self, local_blend, output_dir, job):
         """
@@ -77,6 +89,27 @@ class BlenderRenderer:
             str(job.start_frame),  # start frame
             "-e",
             str(job.end_frame),  # end frame
+            "--python-expr",
+            """
+import bpy
+# Add a default camera if none exists
+if not bpy.data.objects.get('Camera'):
+    # Create camera data
+    camera_data = bpy.data.cameras.new(name='Camera')
+    camera_object = bpy.data.objects.new('Camera', camera_data)
+    
+    # Link camera to scene
+    bpy.context.collection.objects.link(camera_object)
+    
+    # Set camera as active camera
+    bpy.context.scene.camera = camera_object
+    
+    # Position camera
+    camera_object.location = (7, -7, 5)
+    camera_object.rotation_euler = (0.785, 0, 0.785)  # 45 degrees in X and Z
+
+print("Added default camera to scene")
+            """,
             "-a",  # render animation
         ]
 

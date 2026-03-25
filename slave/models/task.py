@@ -29,3 +29,4 @@ class RenderJob(BaseModel):
     # Metadata
     priority: int = 1
     status: JobStatus = JobStatus.PENDING
+    ttl: int = 5

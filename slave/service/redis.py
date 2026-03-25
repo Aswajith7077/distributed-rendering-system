@@ -5,17 +5,22 @@ import os
 from redis.asyncio import Redis
 import redis.exceptions
 import logging
+from renderers import blender_renderer
+from dotenv import load_dotenv
 
+load_dotenv()
 log = logging.getLogger(__name__)
 
 
 STREAM_NAME = "jobs_stream"
+STREAM_RESPONSE_NAME = "jobs_stream_ack"
 GROUP_NAME = "workers_group"
 
 
 class RedisStreamWorker:
     def __init__(self, redis_url=None):
         if redis_url is None:
+            load_dotenv()
             redis_host = os.environ.get("REDIS_HOST", "redis")
             redis_port = os.environ.get("REDIS_PORT", "6379")
             redis_url = f"redis://{redis_host}:{redis_port}"
@@ -83,8 +88,14 @@ class RedisStreamWorker:
         render_payload = job.get("payload", job)
         log.info(f"[JOB] Render payload: {render_payload}")
 
-        # TODO: call blender here with render_payload
-        return {"status": "done", "result": render_payload}
+        # Import here to avoid circular imports
+        from renderers.blender import BlenderRenderer
+        from service import minio_service
+        
+        renderer = BlenderRenderer(minio_service)
+        result = renderer.process_job(render_payload)
+
+        return result
 
     async def consume(self):
         log.info(f"[START] Consumer: {self.consumer_name}")
@@ -129,7 +140,7 @@ class RedisStreamWorker:
                         try:
                             result = await self.handle_job(job_id, data)
 
-                            # ACK after success
+                            await self.redis.xadd(STREAM_RESPONSE_NAME, result)
                             await self.redis.xack(STREAM_NAME, GROUP_NAME, job_id)
 
                             log.info(f"[ACK] {job_id}")

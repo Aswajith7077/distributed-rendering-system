@@ -2,15 +2,16 @@ from models import RenderJob
 from service import redis_service
 
 
-def split_and_dispatch_task(filename: str, config: dict):
+def split_and_dispatch_task(job_id: str, filename: str, config: dict, object_name: str):
     """
     Splits the rendering work into individual frame tasks based on configuration.
     """
     total_frames = config.get("frames", 1)
 
     base_task_data = {
-        "input_bucket": "uploads",
-        "input_object": filename,
+        "job_id": job_id,
+        "input_bucket": "blender-files",
+        "input_object": object_name,
         "output_bucket": "renders",
         "engine": config.get("render_engine", "CYCLES"),
         "resolution_x": config.get("width", 1920),

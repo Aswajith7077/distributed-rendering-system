@@ -107,21 +107,26 @@ async def upload_file(file: UploadFile = File(...), config: str = Form(...)):
 
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     data = await file.read()
+    
+    import uuid
+    job_id = str(uuid.uuid4())
+    object_name = f"jobs/{job_id}/input/scene.blend"
 
     try:
         minio_service.upload_bytes(
             data=data,
-            object_name=file.filename,
+            object_name=object_name,
             content_type=file.content_type or "application/octet-stream",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e.args))
 
     # Trigger task splitter
-    split_and_dispatch_task(filename=file.filename, config=config_data)
+    split_and_dispatch_task(job_id=job_id, filename=file.filename, config=config_data, object_name=object_name)
 
     return JSONResponse(
         content={
+            "job_id": job_id,
             "filename": file.filename,
             "content_type": file.content_type,
             "saved_to": file_path,
