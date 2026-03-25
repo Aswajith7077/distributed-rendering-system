@@ -11,12 +11,52 @@ import os
 import psutil
 import time
 import json
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from service.redis_listener import RedisStatusStreamListener
+
+import logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+log = logging.getLogger(__name__)
 
 SERVER_START_TIME = time.time()
 UPLOAD_DIR = "uploads"
+listener_task = None
+listener = None 
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-app = FastAPI(title="Distributed Tile Renderer API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global listener_task, listener
+
+    print(f"[FASTAPI] Lifespan starting... (log level: {logging.getLevelName(log.getEffectiveLevel())})", flush=True)
+    log.info("[FASTAPI] Lifespan starting...")
+
+    async def run_listener(listener_instance):
+        try:
+            print("listener STARTING", flush=True)
+            log.info("listener STARTING")
+            await asyncio.sleep(1)
+            await listener_instance.setup_group()
+            await listener_instance.consume()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.info(f"[listener CRASH] Unhandled exception: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    listener = RedisStatusStreamListener()
+    listener_task = asyncio.create_task(run_listener(listener))
+    log.info("[FASTAPI] listener task created")
+
+    yield
+
+
+app = FastAPI(title="Distributed Tile Renderer API", version="1.0.0",lifespan = lifespan)
 
 
 @app.get("/")

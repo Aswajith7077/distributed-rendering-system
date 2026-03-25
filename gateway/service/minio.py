@@ -23,6 +23,12 @@ class MinioService:
         if not self.client.bucket_exists(self.bucket_name):
             self.client.make_bucket(self.bucket_name)
 
+    def download(self, object_name: str, file_path: str):
+        self.client.fget_object(self.bucket_name, object_name, file_path)
+
+    def list_objects(self, prefix: str, recursive: bool = True):
+        return self.client.list_objects(self.bucket_name, prefix=prefix, recursive=recursive)
+
     def upload_file(
         self, file_obj, object_name: str, content_type: str = "application/octet-stream"
     ):

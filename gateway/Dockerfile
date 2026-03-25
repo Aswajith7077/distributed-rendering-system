@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 # Install python + venv tools
-RUN apt-get update && apt-get install -y python3 python3-venv python3-pip
+RUN apt-get update && apt-get install -y python3 python3-venv python3-pip ffmpeg
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 

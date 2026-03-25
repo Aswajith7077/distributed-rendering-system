@@ -1,0 +1,5 @@
+gateway-1  | INFO:     Started server process [1]
+gateway-1  | INFO:     Waiting for application startup.
+gateway-1  | INFO:     Application startup complete.
+gateway-1  | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+gateway-1  | INFO:     172.18.0.1:34698 - "POST /api/upload/ HTTP/1.1" 200 OK

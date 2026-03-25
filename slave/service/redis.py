@@ -8,6 +8,8 @@ import logging
 from renderers import blender_renderer
 from dotenv import load_dotenv
 
+from models import Acknowledgement
+
 load_dotenv()
 log = logging.getLogger(__name__)
 
@@ -64,8 +66,8 @@ class RedisStreamWorker:
                         socket_keepalive_options={},
                         health_check_interval=30,
                     )
-                except:
-                    pass
+                except Exception as e:
+                    log.error(f"[RECONNECT FAILED] {e}")
             except Exception as e:
                 if "BUSYGROUP" in str(e):
                     log.info("[INIT] Group already exists, continuing...")
@@ -94,6 +96,7 @@ class RedisStreamWorker:
         
         renderer = BlenderRenderer(minio_service)
         result = renderer.process_job(render_payload)
+        log.info(f"[JOB] Result: {result}")
 
         return result
 
@@ -113,7 +116,8 @@ class RedisStreamWorker:
                     for job_id, data in messages:
                         log.info(f"[RAW MESSAGE] {job_id} -> {data}")
                         try:
-                            await self.handle_job(job_id, data)
+                            result = await self.handle_job(job_id, data)
+                            await self.send_response(result)
                             await self.redis.xack(STREAM_NAME, GROUP_NAME, job_id)
                             log.info(f"[ACK] {job_id}")
                         except Exception as e:
@@ -140,7 +144,7 @@ class RedisStreamWorker:
                         try:
                             result = await self.handle_job(job_id, data)
 
-                            await self.redis.xadd(STREAM_RESPONSE_NAME, result)
+                            await self.send_response(result)
                             await self.redis.xack(STREAM_NAME, GROUP_NAME, job_id)
 
                             log.info(f"[ACK] {job_id}")
@@ -177,12 +181,13 @@ class RedisStreamWorker:
     async def close(self):
         await self.redis.close()
 
+    async def send_response(self, result: Acknowledgement):
+        job = {
+            "job_id": result.job_id,
+            "status": result.status,
+            "error": result.error or "",
+        }
 
-# async def main():
-#     worker = RedisStreamWorker()
-#     await worker.setup_group()
-#     await worker.consume()
+        stream_id = await self.redis.xadd(STREAM_RESPONSE_NAME, job)
 
-
-# if __name__ == "__main__":
-#     asyncio.run(main())
+        return {"stream_id": stream_id, "job_id": result.job_id}

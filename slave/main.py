@@ -20,20 +20,6 @@ async def lifespan(app: FastAPI):
 
     log.info("[FASTAPI] Lifespan starting...")  # ← add this to confirm lifespan runs
 
-    # try:
-    #     log.info("[FASTAPI] Creating worker...")
-    #     # ← initialize here, inside the event loop
-
-    #     log.info("[FASTAPI] Setting up consumer group...")
-    #     await worker.setup_group()
-    #     log.info("[FASTAPI] Setup complete, starting consume task...")
-    # except Exception as e:
-    #     log.error(f"[FASTAPI] FATAL: Worker setup failed: {e}")
-    #     import traceback
-
-    #     traceback.print_exc()
-    #     raise
-
     async def run_worker(worker_instance):
         try:
             print("WORKER STARTING", flush=True)
@@ -53,15 +39,6 @@ async def lifespan(app: FastAPI):
     log.info("[FASTAPI] Worker task created")
 
     yield
-
-    # worker_task.cancel()
-    # try:
-    #     await worker_task
-    # except asyncio.CancelledError:
-    #     log.error("[FASTAPI] Worker stopped cleanly")
-
-    # if worker:
-    #     await worker.close()
 
 
 app = FastAPI(title="Render Slave API", lifespan=lifespan)

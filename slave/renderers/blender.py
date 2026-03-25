@@ -1,4 +1,5 @@
 from models import RenderJob
+from models import Acknowledgement
 import os
 import subprocess
 import shutil
@@ -46,17 +47,17 @@ class BlenderRenderer:
                         content_type="image/png",
                     )
             
-            result = {"status": "done", "result": {"job_id": job.job_id}}
+            result = {"status": "done", "job_id": job.job_id}
 
         except Exception as e:
             log.error(f"Error processing job: {e}")
-            result = {"status": "failed", "error": str(e)}
+            result = {"status": "failed", "job_id": job.job_id, "error": str(e)}
 
         finally:
             if os.path.exists(local_dir):
                 shutil.rmtree(local_dir)
         
-        return result
+        return Acknowledgement(**result)
 
     def render_range(self, local_blend, output_dir, job):
         """
