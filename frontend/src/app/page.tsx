@@ -5,6 +5,7 @@ import {
   getRenderers,
   getJobs,
   createJob,
+  uploadJob,
   deleteJob,
   getTilesPreview,
   getDownloadUrl,
@@ -56,13 +57,18 @@ export default function Home() {
     tiles_rows: 4,
     tiles_cols: 4,
     workers: 4,
-    renderer_type: "synthetic",
-    blender_scene_file: "",
+    renderer_type: "blender",
     blender_engine: "CYCLES",
     blender_samples: 128,
     blender_device: "CPU",
-    render_mode: "coordinator",
+    render_mode: "scheduler",
+    frame_start: 1,
+    frame_end: 1,
+    output_type: "video"
   });
+
+  const [sceneFile, setSceneFile] = useState<File | null>(null);
+
 
   const fetchRenderers = useCallback(async () => {
     try {
@@ -132,17 +138,24 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!sceneFile) {
+      alert("Please select a .blend file");
+      return;
+    }
+    
     setSubmitting(true);
     try {
-      const job = await createJob(config);
+      const job = await uploadJob(sceneFile, config);
       setJobs((prev) => [job, ...prev]);
       setSelectedJob(job);
     } catch (err) {
       console.error("Failed to create job:", err);
+      alert(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSubmitting(false);
     }
   };
+
 
   const handleDelete = async (jobId: string) => {
     try {
@@ -223,170 +236,64 @@ export default function Home() {
                   <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label className="text-xs text-zinc-400">Width</Label>
+                        <Label className="text-xs text-zinc-400">Resolution Width</Label>
                         <Input
                           type="number"
                           value={config.image_width}
                           onChange={(e) =>
                             setConfig({ ...config, image_width: +e.target.value })
                           }
+                          className="bg-black/20 border-zinc-800"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-xs text-zinc-400">Height</Label>
+                        <Label className="text-xs text-zinc-400">Resolution Height</Label>
                         <Input
                           type="number"
                           value={config.image_height}
                           onChange={(e) =>
                             setConfig({ ...config, image_height: +e.target.value })
                           }
+                          className="bg-black/20 border-zinc-800"
                         />
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+
+
+
+
+
+                    <div className="space-y-4 p-4 border border-zinc-800 rounded-lg">
+                      <Label className="text-xs text-zinc-400 font-semibold">Blender Scene</Label>
+                      
                       <div className="space-y-2">
-                        <Label className="text-xs text-zinc-400">Tile Rows</Label>
+                        <Label className="text-[10px] text-zinc-500 uppercase tracking-wider">Upload .blend File</Label>
                         <Input
-                          type="number"
-                          min={1}
-                          max={32}
-                          value={config.tiles_rows}
-                          onChange={(e) =>
-                            setConfig({ ...config, tiles_rows: +e.target.value })
-                          }
+                          type="file"
+                          accept=".blend"
+                          onChange={(e) => setSceneFile(e.target.files?.[0] || null)}
+                          className="bg-black/20 border-zinc-800 cursor-pointer"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs text-zinc-400">Tile Cols</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={32}
-                          value={config.tiles_cols}
-                          onChange={(e) =>
-                            setConfig({ ...config, tiles_cols: +e.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
 
-                    <div className="space-y-2">
-                      <Label className="text-xs text-zinc-400">Workers</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={128}
-                        value={config.workers}
-                        onChange={(e) =>
-                          setConfig({ ...config, workers: +e.target.value })
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-3">
-                      <Label className="text-xs text-zinc-400">Render Mode</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button
-                          type="button"
-                          variant={config.render_mode === "coordinator" ? "default" : "outline"}
-                          size="sm"
-                          onClick={() =>
-                            setConfig({ ...config, render_mode: "coordinator" })
-                          }
-                          className="h-auto py-3"
-                        >
-                          <div className="text-left">
-                            <div className="text-xs font-medium">Coordinator</div>
-                            <div className="text-[10px] opacity-60">Static</div>
-                          </div>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={config.render_mode === "scheduler" ? "default" : "outline"}
-                          size="sm"
-                          onClick={() =>
-                            setConfig({ ...config, render_mode: "scheduler" })
-                          }
-                          className="h-auto py-3"
-                        >
-                          <div className="text-left">
-                            <div className="text-xs font-medium">Scheduler</div>
-                            <div className="text-[10px] opacity-60">Dynamic</div>
-                          </div>
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs text-zinc-400">Renderer</Label>
-                      <Select
-                        value={config.renderer_type}
-                        onValueChange={(v) =>
-                          setConfig({ ...config, renderer_type: v })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {renderers.map((r) => (
-                            <SelectItem key={r.id} value={r.id}>
-                              {r.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {config.renderer_type === "blender" && (
-                      <div className="space-y-4 p-4 border border-zinc-800 rounded-lg">
-                        <Label className="text-xs text-zinc-400">Blender Settings</Label>
-                        <div className="space-y-2">
-                          <Label className="text-[10px] text-zinc-500">Scene File</Label>
-                          <Input
-                            placeholder="C:\path\to\scene.blend"
-                            value={config.blender_scene_file || ""}
-                            onChange={(e) =>
-                              setConfig({ ...config, blender_scene_file: e.target.value })
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-zinc-500">Engine</Label>
+                          <Select
+                            value={config.blender_engine}
+                            onValueChange={(v: "CYCLES" | "BLENDER_EEVEE_NEXT") =>
+                              setConfig({ ...config, blender_engine: v })
                             }
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <Label className="text-[10px] text-zinc-500">Engine</Label>
-                            <Select
-                              value={config.blender_engine}
-                              onValueChange={(v) =>
-                                setConfig({ ...config, blender_engine: v })
-                              }
-                            >
-                              <SelectTrigger className="h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="CYCLES">Cycles</SelectItem>
-                                <SelectItem value="BLENDER_EEVEE_NEXT">Eevee</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] text-zinc-500">Device</Label>
-                            <Select
-                              value={config.blender_device}
-                              onValueChange={(v) =>
-                                setConfig({ ...config, blender_device: v })
-                              }
-                            >
-                              <SelectTrigger className="h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="CPU">CPU</SelectItem>
-                                <SelectItem value="GPU">GPU</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
+                          >
+                            <SelectTrigger className="h-9 bg-black/20">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="CYCLES">Cycles</SelectItem>
+                              <SelectItem value="BLENDER_EEVEE_NEXT">Eevee (Next)</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="space-y-1">
                           <Label className="text-[10px] text-zinc-500">Samples</Label>
@@ -397,26 +304,72 @@ export default function Home() {
                             onChange={(e) =>
                               setConfig({ ...config, blender_samples: +e.target.value })
                             }
-                            className="h-8"
+                            className="h-9 bg-black/20"
                           />
                         </div>
                       </div>
-                    )}
 
-                    <Button type="submit" className="w-full" disabled={submitting}>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-zinc-500">Frame Start</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={config.frame_start}
+                            onChange={(e) =>
+                              setConfig({ ...config, frame_start: +e.target.value })
+                            }
+                            className="h-9 bg-black/20"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-zinc-500">Frame End</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={config.frame_end}
+                            onChange={(e) =>
+                              setConfig({ ...config, frame_end: +e.target.value })
+                            }
+                            className="h-9 bg-black/20"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-[10px] text-zinc-500">Output Preference</Label>
+                        <Select
+                          value={config.output_type}
+                          onValueChange={(v: "video" | "single_frame") =>
+                            setConfig({ ...config, output_type: v })
+                          }
+                        >
+                          <SelectTrigger className="h-9 bg-black/20">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="video">Final Video (.mp4)</SelectItem>
+                            <SelectItem value="single_frame">Single Image (.png)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <Button type="submit" className="w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={submitting}>
                       {submitting ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Starting...
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Uploading & Splitting...
                         </>
                       ) : (
                         <>
-                          <Play className="w-4 h-4" />
-                          Start Render
+                          <Play className="w-4 h-4 mr-2 fill-current" />
+                          Initialize Render Job
                         </>
                       )}
                     </Button>
                   </form>
+
                 </CardContent>
               )}
             </Card>
@@ -494,19 +447,30 @@ export default function Home() {
                               </Button>
                             </div>
                           </div>
-                          {job.result && (
-                            <div className="mt-2 flex gap-4 text-[10px] text-zinc-500">
-                              <span>{job.result.tiles} tiles</span>
-                              <span>{job.result.workers} workers</span>
-                              {job.result.render_time_s && (
-                                <span>{job.result.render_time_s.toFixed(2)}s</span>
-                              )}
+                          <div className="mt-3 space-y-1">
+                            <div className="flex justify-between text-[10px] text-zinc-500">
+                              <span>
+                                {job.status === "completed" 
+                                  ? "100%" 
+                                  : job.total_frames 
+                                    ? `${Math.round(((job.completed_frames || 0) / job.total_frames) * 100)}%`
+                                    : "Preparing..."
+                                }
+                              </span>
+                              <span>
+                                {job.completed_frames || 0} / {job.total_frames || "?"} frames
+                              </span>
                             </div>
-                          )}
+                            <Progress 
+                              value={job.status === "completed" ? 100 : ((job.completed_frames || 0) / (job.total_frames || 1)) * 100} 
+                              className="h-1 bg-zinc-800"
+                            />
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
+
                 </ScrollArea>
               </CardContent>
             </Card>
@@ -520,108 +484,93 @@ export default function Home() {
                   Output
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-0">
                 {!selectedJob ? (
-                  <div className="text-center py-16 text-zinc-500 text-sm">
-                    Select a job
+                  <div className="flex flex-col items-center justify-center py-32 text-zinc-600">
+                    <Image className="w-12 h-12 mb-4 opacity-10" />
+                    <p className="text-sm font-light">Select a job to view output</p>
                   </div>
                 ) : selectedJob.status === "running" || selectedJob.status === "pending" ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                  <div className="p-8 space-y-6">
+                    <div className="aspect-video bg-zinc-900/50 rounded-xl border border-zinc-800/50 flex flex-col items-center justify-center gap-4">
+                      <Loader2 className="w-8 h-8 animate-spin text-zinc-700" />
+                      <div className="text-center">
+                        <p className="text-sm text-zinc-400 font-medium">Rendering in progress</p>
+                        <p className="text-xs text-zinc-600 mt-1">
+                          {selectedJob.completed_frames || 0} / {selectedJob.total_frames || "?"} frames processed
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-1 text-center">
-                      <p className="text-sm text-zinc-300 capitalize">
-                        {selectedJob.status}
-                      </p>
-                      <p className="text-xs text-zinc-500">Rendering in progress</p>
-                    </div>
-                    <Progress value={null} className="h-1" />
+                    <Progress 
+                      value={((selectedJob.completed_frames || 0) / (selectedJob.total_frames || 1)) * 100} 
+                      className="h-1.5 bg-zinc-900" 
+                    />
                   </div>
                 ) : selectedJob.status === "failed" ? (
-                  <div className="text-center py-16">
-                    <XCircle className="w-6 h-6 mx-auto mb-3 text-zinc-600" />
-                    <p className="text-sm text-zinc-400">Failed</p>
+                  <div className="p-16 text-center">
+                    <XCircle className="w-8 h-8 mx-auto mb-4 text-zinc-800" />
+                    <p className="text-sm text-zinc-400 font-medium">Processing Failed</p>
                     {selectedJob.error && (
-                      <p className="text-xs text-zinc-500 mt-2 max-h-24 overflow-auto">
+                      <p className="text-xs text-zinc-600 mt-3 p-3 bg-red-950/20 border border-red-900/20 rounded-lg">
                         {selectedJob.error}
                       </p>
                     )}
                   </div>
-                ) : loadingTiles ? (
-                  <div className="flex items-center justify-center py-16">
-                    <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
-                  </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="aspect-video bg-zinc-900 rounded-lg overflow-hidden">
-                        <img
-                          src={`/api/download/${selectedJob.job_id}`}
-                          alt="Render output"
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = "none";
-                          }}
-                        />
+                  <div className="p-4 space-y-4">
+                    <div className="relative group">
+                      <div className="aspect-video bg-black rounded-xl overflow-hidden border border-zinc-800 shadow-2xl transition-transform duration-500 hover:scale-[1.01] flex items-center justify-center">
+                        {selectedJob.output_type === "video" ? (
+                          <video
+                            src={`/api/download/${selectedJob.job_id}`}
+                            controls
+                            className="w-full h-full"
+                          />
+                        ) : (
+                          <img
+                            src={`/api/download/${selectedJob.job_id}`}
+                            alt="Render output"
+                            className="w-full h-full object-contain"
+                          />
+                        )}
                       </div>
+                      <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Badge className="bg-black/60 backdrop-blur-md border-zinc-700 text-zinc-200">
+                          {selectedJob.output_type === "video" ? "MP4" : "PNG"}
+                        </Badge>
+                      </div>
+                    </div>
+
+
+                    <div className="flex gap-3">
                       <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
+                        variant="secondary"
+                        className="flex-1 bg-zinc-200 text-zinc-950 hover:bg-white font-semibold transition-all"
                         onClick={() => handleDownload(selectedJob.job_id)}
                       >
-                        <Download className="w-4 h-4" />
-                        Download
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Final Result
                       </Button>
                     </div>
 
-                    {tilePreviews.length > 0 && (
-                      <div className="space-y-2">
-                        <Label className="text-xs text-zinc-400">
-                          Tiles ({tilePreviews.length})
-                        </Label>
-                        <div className="grid grid-cols-4 gap-1">
-                          {tilePreviews.map((tile) => (
-                            <div
-                              key={tile.name}
-                              className="aspect-square bg-zinc-900 rounded overflow-hidden"
-                            >
-                              <img
-                                src={`data:image/png;base64,${tile.thumbnail}`}
-                                alt={tile.name}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     {selectedJob.result && (
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="p-2 bg-zinc-900 rounded">
-                          <div className="text-zinc-500">Tiles</div>
-                          <div className="font-mono text-zinc-200">
-                            {selectedJob.result.tiles}
-                          </div>
-                        </div>
-                        <div className="p-2 bg-zinc-900 rounded">
-                          <div className="text-zinc-500">Workers</div>
-                          <div className="font-mono text-zinc-200">
-                            {selectedJob.result.workers}
-                          </div>
-                        </div>
-                        <div className="p-2 bg-zinc-900 rounded">
-                          <div className="text-zinc-500">Time</div>
-                          <div className="font-mono text-zinc-200">
+                      <div className="grid grid-cols-3 gap-3 text-[11px]">
+                        <div className="p-3 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                          <div className="text-zinc-600 mb-1">Time</div>
+                          <div className="font-mono text-zinc-300">
                             {selectedJob.result.render_time_s?.toFixed(2)}s
                           </div>
                         </div>
-                        <div className="p-2 bg-zinc-900 rounded">
-                          <div className="text-zinc-500">Mode</div>
-                          <div className="font-mono text-zinc-200 capitalize">
-                            {selectedJob.result.scheduler}
+                        <div className="p-3 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                          <div className="text-zinc-600 mb-1">Frames</div>
+                          <div className="font-mono text-zinc-300">
+                            {selectedJob.total_frames}
+                          </div>
+                        </div>
+                        <div className="p-3 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                          <div className="text-zinc-600 mb-1">Engine</div>
+                          <div className="font-mono text-zinc-300">
+                            {(selectedJob.workflow as any)?.blender_engine || "CYCLES"}
                           </div>
                         </div>
                       </div>

@@ -1,14 +1,22 @@
 import asyncio
 import socket
 import os
-from redis.asyncio import Redis
+import redis.asyncio
 import redis.exceptions
 import logging
+
+# Windows Fix: "too many file descriptors in select()" (64 fd limit)
+if os.name == "nt":
+    try:
+        from asyncio import WindowsProactorEventLoopPolicy
+        asyncio.set_event_loop_policy(WindowsProactorEventLoopPolicy())
+    except:
+        pass
+
 import subprocess
 import shutil
-from service import minio_service
+from service import minio_service, redis_service
 from dotenv import load_dotenv
-
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +34,7 @@ class RedisStatusStreamListener:
             redis_url = f"redis://{redis_host}:{redis_port}"
 
         self.redis_url = redis_url
-        self.redis = Redis.from_url(
+        self.redis = redis.asyncio.Redis.from_url(
             redis_url,
             decode_responses=True,
             max_connections=10,
@@ -126,37 +134,42 @@ class RedisStatusStreamListener:
             log.error(f"Missing job_id in ack message {message_id}: {data}")
             return
 
-        log.info(f"Start compiling the video for job {job_id}")
+        log.info(f"Processing acknowledgement for job {job_id}")
         if status == "done":
             # Increment completed frames
             completed = await self.redis.incr(f"job:{job_id}:completed_frames")
+            
+            # Sync with job_meta so frontend/SSE sees progress
+            await redis_service.update_job_progress(job_id, completed)
+
             total_frames_str = await self.redis.get(f"job:{job_id}:total_frames")
 
             if total_frames_str:
                 total_frames = int(total_frames_str)
-                log.info(
-                    f"[{job_id}] Progress: {completed}/{total_frames} frames completed."
-                )
                 if completed >= total_frames:
-                    await self.compile_video(job_id)
+                    try:
+                        await self.compile_video(job_id)
+                        await redis_service.update_job_status(job_id, "completed")
+                    except Exception as e:
+                        log.error(f"[{job_id}] Video compilation failed: {e}")
+                        await redis_service.update_job_status(job_id, "failed", error=str(e))
+
             else:
-                log.warning(
-                    f"[{job_id}] Received done ack but total_frames not found. Assuming singular task."
-                )
-                # We don't compile if we don't know total_frames, or we could force it?
+                # Singular task or unknown total
+                await redis_service.update_job_status(job_id, "completed")
+
         else:
             log.error(
                 f"[{job_id}] Received failed status from worker: {data.get('error')}"
             )
-            # Could increment a failed frames counter, etc.
-        log.info(f"Completed compiling the video for job {job_id}")
+            await redis_service.update_job_status(job_id, "failed", error=data.get("error"))
+        log.info(f"Completed processing ack for job {job_id}")
 
     async def setup_group(self):
         retries = 15
         while retries > 0:
             try:
                 log.info("[INIT] Connecting to Redis...")
-                # Force a connection check before xgroup_create
                 await self.redis.ping()
                 log.info("[INIT] Redis reachable, creating consumer group...")
                 await self.redis.xgroup_create(
@@ -171,19 +184,6 @@ class RedisStatusStreamListener:
                 log.error(f"[INIT CONNECTION ERROR] {e}. Retrying... ({retries} left)")
                 retries -= 1
                 await asyncio.sleep(3)
-                # Try to reconnect
-                try:
-                    await self.redis.close()
-                    self.redis = Redis.from_url(
-                        self.redis_url,
-                        decode_responses=True,
-                        max_connections=10,
-                        socket_keepalive=True,
-                        socket_keepalive_options={},
-                        health_check_interval=30,
-                    )
-                except Exception as e:
-                    log.error(f"[RECONNECT FAILED] {e}")
             except Exception as e:
                 if "BUSYGROUP" in str(e):
                     log.info("[INIT] Group already exists, continuing...")
@@ -208,13 +208,11 @@ class RedisStatusStreamListener:
             if response:
                 for stream, messages in response:
                     for message_id, data in messages:
-                        log.info(f"[RAW MESSAGE] {message_id} -> {data}")
                         try:
                             await self.handle_job(message_id, data)
                             await self.redis.xack(
                                 STREAM_RESPONSE_NAME, GROUP_NAME, message_id
                             )
-                            log.info(f"[ACK] {message_id}")
                         except Exception as e:
                             log.error(f"[ERROR] {message_id}: {e}")
         except Exception as e:
@@ -227,7 +225,7 @@ class RedisStatusStreamListener:
                     consumername=self.consumer_name,
                     streams={STREAM_RESPONSE_NAME: ">"},
                     count=1,
-                    block=5000,  # 5 sec blocking
+                    block=5000,
                 )
 
                 if not response:
@@ -235,37 +233,13 @@ class RedisStatusStreamListener:
 
                 for stream, messages in response:
                     for message_id, data in messages:
-                        log.info(f"[RAW MESSAGE] {message_id} -> {data}")
                         try:
                             await self.handle_job(message_id, data)
                             await self.redis.xack(
                                 STREAM_RESPONSE_NAME, GROUP_NAME, message_id
                             )
-
-                            log.info(f"[ACK] {message_id}")
-
                         except Exception as e:
                             log.error(f"[ERROR] {message_id}: {e}")
-                            # Do NOT ack → stays pending for retry
-
-            except (ConnectionError, redis.exceptions.ConnectionError) as e:
-                log.error(f"[CONNECTION ERROR] {e}. Reconnecting...")
-                await asyncio.sleep(5)
-                try:
-                    await self.redis.close()
-                    self.redis = Redis.from_url(
-                        self.redis_url,
-                        decode_responses=True,
-                        max_connections=10,
-                        socket_keepalive=True,
-                        socket_keepalive_options={},
-                        health_check_interval=30,
-                    )
-                    await self.redis.ping()
-                    log.info("[RECONNECT] Successfully reconnected to Redis")
-                except Exception as reconnect_error:
-                    log.error(f"[RECONNECT FAILED] {reconnect_error}")
-                    await asyncio.sleep(10)
             except Exception as e:
                 log.error(f"[FATAL] {e}")
                 await asyncio.sleep(2)

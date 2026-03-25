@@ -19,13 +19,17 @@ export interface WorkflowConfig {
   tiles_rows: number;
   tiles_cols: number;
   workers: number;
-  renderer_type: string;
+  renderer_type: "blender";
   blender_scene_file?: string;
-  blender_engine?: string;
+  blender_engine?: "CYCLES" | "BLENDER_EEVEE_NEXT";
   blender_samples?: number;
-  blender_device?: string;
+  blender_device?: "CPU" | "GPU";
   render_mode: "coordinator" | "scheduler";
+  frame_start?: number;
+  frame_end?: number;
+  output_type: "video" | "single_frame";
 }
+
 
 export interface Job {
   job_id: string;
@@ -34,6 +38,9 @@ export interface Job {
   started_at?: string;
   completed_at?: string;
   workflow: Record<string, unknown>;
+  completed_frames?: number;
+  total_frames?: number;
+  output_type?: "video" | "single_frame";
   result?: {
     workers: number;
     tiles: number;
@@ -45,6 +52,7 @@ export interface Job {
   };
   error?: string;
 }
+
 
 export interface TilePreview {
   name: string;
@@ -83,6 +91,26 @@ export async function createJob(config: WorkflowConfig): Promise<Job> {
     body: JSON.stringify(config),
   });
 }
+
+export async function uploadJob(file: File, config: WorkflowConfig): Promise<Job> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("config", JSON.stringify(config));
+
+  const response = await fetch(`${API_BASE}/api/upload/`, {
+    method: "POST",
+    body: formData,
+    // Note: Fetch sets the multipart boundary automatically when body is FormData
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Upload failed");
+  }
+
+  return response.json();
+}
+
 
 export async function deleteJob(jobId: string): Promise<{ message: string; job_id: string }> {
   return fetchJSON(`${API_BASE}/api/jobs/${jobId}`, {

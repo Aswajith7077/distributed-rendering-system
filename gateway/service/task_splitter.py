@@ -1,36 +1,45 @@
-from models import RenderJob
+from models.task import RenderJob
 from service import redis_service
 
 
-def split_and_dispatch_task(job_id: str, filename: str, config: dict, object_name: str):
+async def split_and_dispatch_task(job_id: str, filename: str, config: dict, object_name: str):
     """
     Splits the rendering work into individual frame tasks based on configuration.
     """
-    total_frames = config.get("frames", 1)
+    frame_start = config.get("frame_start", 1)
+    frame_end = config.get("frame_end", 1)
+    total_frames = max(1, frame_end - frame_start + 1)
+    output_type = config.get("output_type", "video")
+
+    # Initialize the parent job in Redis
+    await redis_service.initialize_job(
+        job_id=job_id,
+        config=config,
+        total_frames=total_frames
+    )
 
     base_task_data = {
         "job_id": job_id,
         "input_bucket": "blender-files",
         "input_object": object_name,
-        "output_bucket": "renders",
-        "engine": config.get("render_engine", "CYCLES"),
-        "resolution_x": config.get("width", 1920),
-        "resolution_y": config.get("height", 1080),
-        "samples": config.get("samples", 128),
+        "output_bucket": "blender-files",
+        "output_type": output_type,
+        "engine": config.get("blender_engine", "CYCLES"),
+        "resolution_x": config.get("image_width", 1920),
+        "resolution_y": config.get("image_height", 1080),
+        "samples": config.get("blender_samples", 128),
     }
 
-    for frame_num in range(1, total_frames + 1):
+    for frame_num in range(frame_start, frame_end + 1):
         task_data = base_task_data.copy()
         task_data["start_frame"] = frame_num
         task_data["end_frame"] = frame_num
 
         task = RenderJob(**task_data)
 
-        # Publish to Redis using the existing redis_service
-        # Mode='json' ensures it serializes UUIDs and Enums properly
-        redis_service.add_job(
-            payload=task.model_dump(mode="json"), job_type=task.engine.value
+        # Dispatch the individual task
+        await redis_service.add_task(
+            job_id=job_id,
+            task_data=task.model_dump(mode="json")
         )
 
-    # Store total frames in Redis to track job completion
-    redis_service.redis.set(f"job:{job_id}:total_frames", total_frames)
