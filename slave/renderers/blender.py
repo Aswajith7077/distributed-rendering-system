@@ -2,6 +2,9 @@ from models import RenderJob
 import os
 import subprocess
 import shutil
+import logging
+
+log = logging.getLogger(__name__)
 
 
 class BlenderRenderer:
@@ -15,13 +18,16 @@ class BlenderRenderer:
         output_dir = os.path.join(local_dir, "output")
 
         os.makedirs(output_dir, exist_ok=True)
+        log.info(f"Created local directories: {local_dir}")
 
         try:
             # 1. Download
             self.minio.download(object_name, local_blend)
+            log.info(f"Downloaded file from MinIO: {object_name} to {local_blend}")
 
             # 2. Render (IMPORTANT FIX)
             self.render_range(local_blend, output_dir, job)
+            log.info(f"Rendered frames {job.start_frame} → {job.end_frame}")
 
             # 3. Upload
             for file_name in os.listdir(output_dir):
@@ -40,7 +46,6 @@ class BlenderRenderer:
             if os.path.exists(local_dir):
                 shutil.rmtree(local_dir)
 
-
     def render_range(self, local_blend, output_dir, job):
         """
         Render a range of frames using a single Blender process (efficient).
@@ -55,17 +60,24 @@ class BlenderRenderer:
 
         # Blender output prefix (Blender auto adds frame numbers)
         output_path = os.path.join(output_dir, "frame_")
+        log.info(f"Blender output path: {output_path}")
 
         cmd = [
             "blender",
-            "-b", local_blend,                    # headless mode
+            "-b",
+            local_blend,  # headless mode
             "-noaudio",
-            "-E", job.engine if job.engine else "CYCLES",
-            "-o", output_path,                   # output prefix
-            "-F", "PNG",                         # format
-            "-s", str(job.start_frame),          # start frame
-            "-e", str(job.end_frame),            # end frame
-            "-a",                                # render animation
+            "-E",
+            job.engine if job.engine else "CYCLES",
+            "-o",
+            output_path,  # output prefix
+            "-F",
+            "PNG",  # format
+            "-s",
+            str(job.start_frame),  # start frame
+            "-e",
+            str(job.end_frame),  # end frame
+            "-a",  # render animation
         ]
 
         # Optional: thread control
@@ -81,12 +93,12 @@ class BlenderRenderer:
                 check=True,
             )
 
-            print(f"[INFO] Rendered frames {job.start_frame} → {job.end_frame}")
+            log.info(f"Rendered frames {job.start_frame} → {job.end_frame}")
 
         except subprocess.CalledProcessError as e:
-            print("[ERROR] Blender render failed")
-            print("STDOUT:\n", e.stdout)
-            print("STDERR:\n", e.stderr)
+            log.error("Blender render failed")
+            log.error(f"STDOUT:\n{e.stdout}")
+            log.error(f"STDERR:\n{e.stderr}")
 
             raise Exception(
                 f"Render failed for job {job.job_id} "

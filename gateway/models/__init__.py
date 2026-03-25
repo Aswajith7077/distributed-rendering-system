@@ -1,3 +1,3 @@
-from .task import TaskModel
+from .task import RenderJob
 
-__all__ = ["TaskModel"]
+__all__ = ["RenderJob"]

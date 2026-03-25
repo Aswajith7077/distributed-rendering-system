@@ -8,3 +8,4 @@ output/
 
 node_modules/
 .next
+.ruff_cache

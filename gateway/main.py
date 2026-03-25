@@ -106,7 +106,6 @@ async def upload_file(file: UploadFile = File(...), config: str = Form(...)):
         raise HTTPException(status_code=400, detail="Invalid config JSON format")
 
     file_path = os.path.join(UPLOAD_DIR, file.filename)
-    print("File path: ", file_path)
     data = await file.read()
 
     try:

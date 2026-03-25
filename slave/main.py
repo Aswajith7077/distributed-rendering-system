@@ -1,60 +1,76 @@
-import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 from service import RedisStreamWorker
+import logging
+import asyncio
 
 
 worker_task = None
 worker = None  # ← don't initialize at module level
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global worker_task, worker
 
-    print("[FASTAPI] Lifespan starting...")  # ← add this to confirm lifespan runs
+    log.info("[FASTAPI] Lifespan starting...")  # ← add this to confirm lifespan runs
 
-    try:
-        print("[FASTAPI] Creating worker...")
-        worker = RedisStreamWorker()  # ← initialize here, inside the event loop
+    # try:
+    #     log.info("[FASTAPI] Creating worker...")
+    #     # ← initialize here, inside the event loop
 
-        print("[FASTAPI] Setting up consumer group...")
-        await worker.setup_group()
-        print("[FASTAPI] Setup complete, starting consume task...")
-    except Exception as e:
-        print(f"[FASTAPI] FATAL: Worker setup failed: {e}")
-        import traceback
+    #     log.info("[FASTAPI] Setting up consumer group...")
+    #     await worker.setup_group()
+    #     log.info("[FASTAPI] Setup complete, starting consume task...")
+    # except Exception as e:
+    #     log.error(f"[FASTAPI] FATAL: Worker setup failed: {e}")
+    #     import traceback
 
-        traceback.print_exc()
-        raise
+    #     traceback.print_exc()
+    #     raise
 
-    async def run_worker():
+    async def run_worker(worker_instance):
         try:
-            await worker.consume()
+            print("WORKER STARTING", flush=True)
+            await asyncio.sleep(1)
+            await worker_instance.setup_group()
+            await worker_instance.consume()
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            print(f"[WORKER CRASH] Unhandled exception: {e}")
+            log.info(f"[WORKER CRASH] Unhandled exception: {e}")
             import traceback
 
             traceback.print_exc()
 
-    worker_task = asyncio.create_task(run_worker())
-    print("[FASTAPI] Worker task created")
+    worker = RedisStreamWorker()
+    worker_task = asyncio.create_task(run_worker(worker))
+    log.info("[FASTAPI] Worker task created")
 
     yield
 
-    worker_task.cancel()
-    try:
-        await worker_task
-    except asyncio.CancelledError:
-        print("[FASTAPI] Worker stopped cleanly")
+    # worker_task.cancel()
+    # try:
+    #     await worker_task
+    # except asyncio.CancelledError:
+    #     log.error("[FASTAPI] Worker stopped cleanly")
 
-    if worker:
-        await worker.close()
+    # if worker:
+    #     await worker.close()
 
 
 app = FastAPI(title="Render Slave API", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health_check():
+    """
+    HTTP health check endpoint for Docker health checks.
+    """
+    return {"status": "healthy", "message": "Worker is running"}
 
 
 @app.websocket("/health")
@@ -77,7 +93,7 @@ async def health_endpoint(websocket: WebSocket):
             }
             await websocket.send_json(health_status)
     except WebSocketDisconnect:
-        print("Client disconnected from health testing WebSocket.")
+        log.error("Client disconnected from health testing WebSocket.")
 
 
 @app.post("/render_callback")
