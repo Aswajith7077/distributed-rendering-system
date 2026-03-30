@@ -13,9 +13,15 @@ class BlenderRenderer:
         self.minio = minio_service
 
     def process_job(self, job: dict):
+        import uuid
         job = RenderJob(**job)
         object_name = f"jobs/{job.job_id}/input/scene.blend"
-        local_dir = f"/tmp/{job.job_id}"
+        
+        # Isolate local directory per-task to prevent WinError 32 lock collisions
+        # when multiple local workers process frames for the same job.
+        task_uuid = uuid.uuid4().hex
+        local_dir = f"/tmp/{job.job_id}_{task_uuid}"
+        
         # Use proper path joining for cross-platform compatibility
         local_blend = os.path.join(local_dir, "scene.blend")
         output_dir = os.path.join(local_dir, "output")

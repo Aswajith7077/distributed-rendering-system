@@ -9,6 +9,7 @@ import logging
 if os.name == "nt":
     try:
         from asyncio import WindowsProactorEventLoopPolicy
+
         asyncio.set_event_loop_policy(WindowsProactorEventLoopPolicy())
     except:
         pass
@@ -138,7 +139,7 @@ class RedisStatusStreamListener:
         if status == "done":
             # Increment completed frames
             completed = await self.redis.incr(f"job:{job_id}:completed_frames")
-            
+
             # Sync with job_meta so frontend/SSE sees progress
             await redis_service.update_job_progress(job_id, completed)
 
@@ -152,7 +153,9 @@ class RedisStatusStreamListener:
                         await redis_service.update_job_status(job_id, "completed")
                     except Exception as e:
                         log.error(f"[{job_id}] Video compilation failed: {e}")
-                        await redis_service.update_job_status(job_id, "failed", error=str(e))
+                        await redis_service.update_job_status(
+                            job_id, "failed", error=str(e)
+                        )
 
             else:
                 # Singular task or unknown total
@@ -162,7 +165,9 @@ class RedisStatusStreamListener:
             log.error(
                 f"[{job_id}] Received failed status from worker: {data.get('error')}"
             )
-            await redis_service.update_job_status(job_id, "failed", error=data.get("error"))
+            await redis_service.update_job_status(
+                job_id, "failed", error=data.get("error")
+            )
         log.info(f"Completed processing ack for job {job_id}")
 
     async def setup_group(self):

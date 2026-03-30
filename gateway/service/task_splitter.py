@@ -2,7 +2,9 @@ from models.task import RenderJob
 from service import redis_service
 
 
-async def split_and_dispatch_task(job_id: str, filename: str, config: dict, object_name: str):
+async def split_and_dispatch_task(
+    job_id: str, filename: str, config: dict, object_name: str
+):
     """
     Splits the rendering work into individual frame tasks based on configuration.
     """
@@ -13,9 +15,7 @@ async def split_and_dispatch_task(job_id: str, filename: str, config: dict, obje
 
     # Initialize the parent job in Redis
     await redis_service.initialize_job(
-        job_id=job_id,
-        config=config,
-        total_frames=total_frames
+        job_id=job_id, config=config, total_frames=total_frames
     )
 
     base_task_data = {
@@ -39,7 +39,5 @@ async def split_and_dispatch_task(job_id: str, filename: str, config: dict, obje
 
         # Dispatch the individual task
         await redis_service.add_task(
-            job_id=job_id,
-            task_data=task.model_dump(mode="json")
+            job_id=job_id, task_data=task.model_dump(mode="json")
         )
-

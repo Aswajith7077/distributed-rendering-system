@@ -30,6 +30,5 @@ class RenderJob(BaseModel):
     # Metadata
     priority: int = 1
     status: JobStatus = JobStatus.PENDING
-    created_at: float = Field(default_factory=lambda: 0.0) # Will be set on creation
+    created_at: float = Field(default_factory=lambda: 0.0)  # Will be set on creation
     ttl: int = 5
-
