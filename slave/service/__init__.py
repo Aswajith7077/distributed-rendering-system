@@ -1,4 +1,7 @@
 from .minio import MinioService
+from .metrics import MetricsService
+from .metrics import MetricsCollector
+from .reporter import GatewayReporter
 from dotenv import load_dotenv
 import os
 
@@ -13,4 +16,10 @@ minio_service = MinioService(
 from .redis import RedisStreamWorker
 
 
-__all__ = ["RedisStreamWorker", "minio_service"]
+__all__ = [
+    "RedisStreamWorker",
+    "minio_service",
+    "MetricsService",
+    "GatewayReporter",
+    "MetricsCollector",
+]

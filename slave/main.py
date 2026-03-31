@@ -12,184 +12,30 @@ WebSocket:        /health  (legacy ping-pong, kept for backwards compat)
 """
 
 import asyncio
-import json
 import logging
-import os
-import socket
-import time
-from contextlib import asynccontextmanager
 
-import psutil
-import websockets
-from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from service import RedisStreamWorker
-from service.metrics import MetricsService
+from service import MetricsService
+from service import MetricsCollector
+from service import GatewayReporter
+from config import ConfigService
 
-load_dotenv()
+config = ConfigService()
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# ── configuration ──────────────────────────────────────────────────────────────
 
-GATEWAY_WS_URL: str = os.environ.get("GATEWAY_WS_URL", "")  # empty = reporter disabled
-NODE_TYPE: str = os.environ.get("NODE_TYPE", "slave")
-PUSH_INTERVAL: int = int(os.environ.get("PUSH_INTERVAL", "5"))
-RECONNECT_DELAY: int = int(os.environ.get("RECONNECT_DELAY", "3"))
-
-
-# ── metrics collector ─────────────────────────────────────────────────────────
-
-
-class MetricsCollector:
-    """
-    Collects system metrics using psutil.
-    Does NOT depend on Redis — pure in-process collection.
-    """
-
-    def __init__(self, node_type: str = "slave"):
-        self.node_id = f"{node_type}:{socket.gethostname()}:{os.getpid()}"
-        self.node_type = node_type
-        self.start_time = time.time()
-
-    def collect(self) -> dict:
-        cpu = psutil.cpu_percent(interval=None)
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
-        net = psutil.net_io_counters()
-
-        gpu_info: list[dict] = []
-        try:
-            import GPUtil  # type: ignore
-
-            for g in GPUtil.getGPUs():
-                gpu_info.append(
-                    {
-                        "id": g.id,
-                        "name": g.name,
-                        "load_pct": round(g.load * 100, 1),
-                        "memory_used_mb": g.memoryUsed,
-                        "memory_total_mb": g.memoryTotal,
-                        "temperature_c": g.temperature,
-                    }
-                )
-        except Exception:
-            pass
-
-        return {
-            "node_id": self.node_id,
-            "type": self.node_type,
-            "status": "online",
-            "uptime_seconds": int(time.time() - self.start_time),
-            "timestamp": time.time(),
-            "cpu": {
-                "percent": cpu,
-                "per_core": psutil.cpu_percent(percpu=True),
-                "core_count": psutil.cpu_count(),
-            },
-            "memory": {
-                "percent": mem.percent,
-                "used_gb": round(mem.used / (1024**3), 2),
-                "total_gb": round(mem.total / (1024**3), 2),
-                "available_gb": round(mem.available / (1024**3), 2),
-            },
-            "disk": {
-                "percent": disk.percent,
-                "used_gb": round(disk.used / (1024**3), 2),
-                "free_gb": round(disk.free / (1024**3), 2),
-                "total_gb": round(disk.total / (1024**3), 2),
-            },
-            "network": {
-                "bytes_sent": net.bytes_sent,
-                "bytes_recv": net.bytes_recv,
-                "packets_sent": net.packets_sent,
-                "packets_recv": net.packets_recv,
-            },
-            "gpu": gpu_info,
-        }
-
-
-# ── gateway reporter (WS push loop) ──────────────────────────────────────────
-
-
-class GatewayReporter:
-    """
-    Maintains a persistent outbound WebSocket connection to the Gateway and
-    pushes a metrics snapshot every PUSH_INTERVAL seconds.
-
-    Disabled entirely when GATEWAY_WS_URL is not set — safe to deploy slaves
-    that don't have a gateway yet.
-    """
-
-    def __init__(self, collector: MetricsCollector):
-        self.collector = collector
-        self.enabled = bool(GATEWAY_WS_URL)
-
-    async def run(self) -> None:
-        if not self.enabled:
-            log.info("[GatewayReporter] GATEWAY_WS_URL not set — reporter disabled.")
-            return
-
-        while True:
-            try:
-                await self._connect_and_push()
-            except asyncio.CancelledError:
-                log.info("[GatewayReporter] Cancelled.")
-                raise
-            except Exception as exc:
-                log.warning(
-                    "[GatewayReporter] Unexpected error: %s. Reconnecting in %ds…",
-                    exc,
-                    RECONNECT_DELAY,
-                )
-                await asyncio.sleep(RECONNECT_DELAY)
-
-    async def _connect_and_push(self) -> None:
-        log.info("[GatewayReporter] Connecting to %s", GATEWAY_WS_URL)
-
-        async with websockets.connect(
-            GATEWAY_WS_URL,
-            ping_interval=20,
-            ping_timeout=10,
-            open_timeout=10,
-        ) as ws:
-            log.info("[GatewayReporter] Connected as %s", self.collector.node_id)
-
-            # Registration frame
-            await ws.send(
-                json.dumps(
-                    {
-                        "event": "hello",
-                        "node_id": self.collector.node_id,
-                        "type": self.collector.node_type,
-                    }
-                )
-            )
-
-            while True:
-                payload = self.collector.collect()
-                await ws.send(json.dumps(payload))
-                log.debug(
-                    "[GatewayReporter] Pushed snapshot for %s", self.collector.node_id
-                )
-                await asyncio.sleep(PUSH_INTERVAL)
-
-
-# ── shared collector instance (used by reporter AND HTTP endpoints) ────────────
-
-_collector = MetricsCollector(node_type=NODE_TYPE)
-
-
-# ── lifespan ───────────────────────────────────────────────────────────────────
+_collector = MetricsCollector(node_type=config.NODE_TYPE)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("[FASTAPI] Lifespan starting...")
 
-    # ── 1. Redis Stream Worker ─────────────────────────────────────────────────
     async def run_worker(w: RedisStreamWorker) -> None:
         try:
             log.info("[Worker] Starting…")
@@ -204,20 +50,17 @@ async def lifespan(app: FastAPI):
     worker = RedisStreamWorker()
     worker_task = asyncio.create_task(run_worker(worker), name="redis-worker")
 
-    # ── 2. Legacy MetricsService (Redis key reporting) ─────────────────────────
-    metrics_service = MetricsService(node_type=NODE_TYPE)
+    metrics_service = MetricsService(node_type=config.NODE_TYPE)
     metrics_task = asyncio.create_task(
         metrics_service.report_loop(), name="metrics-redis"
     )
 
-    # ── 3. Gateway Reporter (outbound WS push to gateway) ─────────────────────
-    reporter = GatewayReporter(_collector)
+    reporter = GatewayReporter(log=log, config=config, collector=_collector)
     reporter_task = asyncio.create_task(reporter.run(), name="gateway-reporter")
 
     log.info("[FASTAPI] All background tasks created.")
     yield
 
-    # ── Graceful shutdown ──────────────────────────────────────────────────────
     log.info("[FASTAPI] Shutting down background tasks…")
     for task in (worker_task, metrics_task, reporter_task):
         task.cancel()
