@@ -51,13 +51,17 @@ services:
     ports:
       - "8001:8000"
     depends_on:
-      - redis
-      - minio
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       REDIS_HOST: redis
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: admin
       MINIO_SECRET_KEY: password123
+      GATEWAY_WS_URL: ws://gateway:8000/ws/slave
+      BLENDER_PATH: /home/headless/blender
     deploy:
       restart_policy:
         condition: on-failure
@@ -75,13 +79,17 @@ services:
     ports:
       - "8002:8000"
     depends_on:
-      - redis
-      - minio
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       REDIS_HOST: redis
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: admin
       MINIO_SECRET_KEY: password123
+      GATEWAY_WS_URL: ws://gateway:8000/ws/slave
+      BLENDER_PATH: /home/headless/blender
     deploy:
       restart_policy:
         condition: on-failure
@@ -89,6 +97,85 @@ services:
         max_attempts: 3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  worker3:
+    build: ./slave
+    ports:
+      - "8003:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password123
+      GATEWAY_WS_URL: ws://gateway:8000/ws/slave
+      BLENDER_PATH: /home/headless/blender
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  worker4:
+    build: ./slave
+    ports:
+      - "8004:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password123
+      GATEWAY_WS_URL: ws://gateway:8000/ws/slave
+      BLENDER_PATH: /home/headless/blender
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      gateway:
+        condition: service_started
+    environment:
+      # REACT_APP_API_URL: http://localhost:8000
+      # REACT_APP_WS_URL: ws://localhost:8000/ws/slave
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3

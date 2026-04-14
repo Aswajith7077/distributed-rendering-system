@@ -6,13 +6,13 @@ import redis.exceptions
 import logging
 
 # Windows Fix: "too many file descriptors in select()" (64 fd limit)
-if os.name == "nt":
-    try:
-        from asyncio import WindowsProactorEventLoopPolicy
+# if os.name == "nt":
+#     try:
+#         from asyncio import WindowsProactorEventLoopPolicy
 
-        asyncio.set_event_loop_policy(WindowsProactorEventLoopPolicy())
-    except:
-        pass
+#         asyncio.set_event_loop_policy(WindowsProactorEventLoopPolicy())
+#     except:
+#         pass
 
 import subprocess
 import shutil

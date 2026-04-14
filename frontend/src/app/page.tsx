@@ -13,8 +13,6 @@ import {
   type Renderer,
   type TilePreview,
 } from "@/lib/api";
-import HealthDashboard from "@/components/HealthDashboard";
-import { Sidebar } from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,16 +22,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Play,
   Trash2,
   Download,
-  RefreshCw,
   Image,
-  Layers,
-  Cpu,
-  Grid3X3,
   Loader2,
   CheckCircle,
   XCircle,
@@ -45,15 +38,15 @@ import {
 } from "lucide-react";
 
 export default function Home() {
-  const [renderers, setRenderers] = useState<Renderer[]>([]);
+  const [, setRenderers] = useState<Renderer[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [tilePreviews, setTilePreviews] = useState<TilePreview[]>([]);
-  const [loadingTiles, setLoadingTiles] = useState(false);
+  const [, setTilePreviews] = useState<TilePreview[]>([]);
+  const [, setLoadingTiles] = useState(false);
   const [showConfig, setShowConfig] = useState(true);
-  const [activeTab, setActiveTab] = useState<"render" | "health">("render");
+  // const [activeTab, setActiveTab] = useState<"render" | "health">("render");
 
 
   const [config, setConfig] = useState<WorkflowConfig>({
@@ -133,7 +126,7 @@ export default function Home() {
           setJobs(prev => prev.filter(j => j.job_id !== data.job_id));
           setSelectedJob(prev => prev?.job_id === data.job_id ? null : prev);
         }
-      } catch (err) {
+      } catch {
         // Ignore keepalive messages
       }
     };
@@ -284,7 +277,7 @@ export default function Home() {
                             <Select
                               value={config.blender_engine}
                               onValueChange={(v) =>
-                                setConfig({ ...config, blender_engine: v as any })
+                                setConfig({ ...config, blender_engine: v as WorkflowConfig["blender_engine"] })
                               }
                             >
                               <SelectTrigger className="h-9 bg-black/20">
@@ -342,7 +335,7 @@ export default function Home() {
                           <Select
                             value={config.output_type}
                             onValueChange={(v) =>
-                              setConfig({ ...config, output_type: v as any })
+                              setConfig({ ...config, output_type: v as WorkflowConfig["output_type"] })
                             }
                           >
                             <SelectTrigger className="h-9 bg-black/20">
@@ -479,14 +472,14 @@ export default function Home() {
               <Card className="sticky top-6">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Image className="w-4 h-4 text-zinc-500" />
+                    <Image className="w-4 h-4 text-zinc-500" aria-hidden="true"/>
                     Output
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                   {!selectedJob ? (
                     <div className="flex flex-col items-center justify-center py-32 text-zinc-600">
-                      <Image className="w-12 h-12 mb-4 opacity-10" />
+                      <Image className="w-12 h-12 mb-4 opacity-10" aria-hidden="true" />
                       <p className="text-sm font-light">Select a job to view output</p>
                     </div>
                   ) : selectedJob.status === "running" || selectedJob.status === "pending" ? (
@@ -526,6 +519,7 @@ export default function Home() {
                               className="w-full h-full"
                             />
                           ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={`/api/download/${selectedJob.job_id}`}
                               alt="Render output"
@@ -568,7 +562,7 @@ export default function Home() {
                           <div className="p-3 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
                             <div className="text-zinc-600 mb-1">Engine</div>
                             <div className="font-mono text-zinc-300">
-                              {(selectedJob.workflow as any)?.blender_engine || "CYCLES"}
+                              {(selectedJob.workflow as unknown as WorkflowConfig)?.blender_engine || "CYCLES"}
                             </div>
                           </div>
                         </div>

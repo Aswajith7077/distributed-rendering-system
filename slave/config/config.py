@@ -1,10 +1,23 @@
 from dotenv import dotenv_values
 from typing import Any
+import os
 
 
 class ConfigService:
     def __init__(self):
-        self._config = dotenv_values()
+        # First try to get from environment variables (Docker)
+        self._config = {}
+        for key, value in os.environ.items():
+            self._config[key] = value
+
+        # Then try dotenv files for local development
+        dotenv_config = dotenv_values()
+        self._config.update(dotenv_config)
+
+        # Debug: Print what we actually read
+        print(f"DEBUG: GATEWAY_WS_URL = {self._config.get('GATEWAY_WS_URL')}")
+        print(f"DEBUG: All env vars: {dict(os.environ)}")
+
         # Define default values for configuration keys
         self._defaults = {
             "REDIS_HOST": "localhost",
@@ -18,7 +31,7 @@ class ConfigService:
         self._int_keys = {"REDIS_PORT", "PUSH_INTERVAL", "RECONNECT_DELAY"}
 
     def get(self, key: str) -> Any:
-        # 1. Try environment/dotenv
+        # 1. Try environment/dotenv (Docker env vars take precedence)
         val = self._config.get(key)
 
         # 2. Fallback to defaults

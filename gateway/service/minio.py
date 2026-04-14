@@ -15,6 +15,9 @@ class MinioService:
         self.client = Minio(
             endpoint, access_key=access_key, secret_key=secret_key, secure=secure
         )
+        # self.external_client = Minio(
+        #     "localhost:9000", access_key=access_key, secret_key=secret_key, secure=secure
+        # )
         self.bucket_name = bucket_name
 
         self._ensure_bucket_exists()

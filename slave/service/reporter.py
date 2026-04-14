@@ -44,10 +44,12 @@ class GatewayReporter:
                 await asyncio.sleep(delay)
 
     async def _connect_and_push(self) -> None:
-        self.log.info("[GatewayReporter] Connecting to %s", self.config.GATEWAY_WS_URL)
+        gateway_url = self.config.GATEWAY_WS_URL
+        self.log.info("[GatewayReporter] Connecting to %s", gateway_url)
+        self.log.info("[GatewayReporter] Config GATEWAY_WS_URL value: %s", gateway_url)
 
         async with websockets.connect(
-            self.config.GATEWAY_WS_URL,
+            gateway_url,
             ping_interval=20,
             ping_timeout=10,
             open_timeout=10,

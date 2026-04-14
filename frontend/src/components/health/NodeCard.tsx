@@ -102,7 +102,7 @@ function CpuSparkline({ history }: { history: CpuHistoryPoint[] }) {
           <YAxis domain={[0, 100]} hide />
           <Tooltip
             contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 10 }}
-            formatter={(v: any) => [`${Number(v).toFixed(1)}%`, "CPU"]}
+            formatter={(v: string | number | undefined | readonly (string | number)[]) => [v ? `${Number(v).toFixed(1)}%` : "0%", "CPU"]}
             labelFormatter={() => ""}
           />
           <Area

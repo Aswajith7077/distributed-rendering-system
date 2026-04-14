@@ -12,6 +12,23 @@ class BlenderRenderer:
     def __init__(self, minio_service):
         self.minio = minio_service
 
+    def _get_valid_engine(self, engine: str) -> str:
+        """Get valid render engine, fallback to CYCLES if invalid"""
+        # List of supported engines in order of preference
+        supported_engines = ["CYCLES", "BLENDER_EEVEE_NEXT", "EEVEE", "BLENDER_WORKBENCH"]
+
+        # Normalize engine name
+        if engine:
+            engine = engine.upper()
+
+        # Check if requested engine is supported
+        if engine in supported_engines:
+            return engine
+
+        # Fallback to CYCLES for compatibility
+        log.warning(f"Engine '{engine}' not supported, falling back to CYCLES")
+        return "EEVEE"
+
     def process_job(self, job: dict):
         import uuid
 
@@ -88,7 +105,7 @@ class BlenderRenderer:
             local_blend,  # headless mode
             "-noaudio",
             "-E",
-            job.engine if job.engine else "CYCLES",
+            self._get_valid_engine(job.engine),
             "-o",
             output_path,  # output prefix
             "-F",
@@ -100,6 +117,11 @@ class BlenderRenderer:
             "--python-expr",
             """
 import bpy
+# Set render settings for better compatibility
+scene = bpy.context.scene
+scene.render.image_settings.file_format = 'PNG'
+scene.render.image_settings.color_depth = '8'
+
 # Add a default camera if none exists
 if not bpy.data.objects.get('Camera'):
     # Create camera data
@@ -116,7 +138,14 @@ if not bpy.data.objects.get('Camera'):
     camera_object.location = (7, -7, 5)
     camera_object.rotation_euler = (0.785, 0, 0.785)  # 45 degrees in X and Z
 
-print("Added default camera to scene")
+# Ensure scene has proper lighting
+if not any(obj.type == 'LIGHT' for obj in bpy.data.objects):
+    # Add default light
+    bpy.ops.object.light_add(type='SUN', location=(5, 5, 5))
+    sun = bpy.context.active_object
+    sun.energy = 3.0
+
+print("Added default camera and lighting to scene")
             """,
             "-a",  # render animation
         ]
@@ -126,7 +155,7 @@ print("Added default camera to scene")
             cmd.extend(["-t", str(job.threads)])
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

@@ -2,6 +2,7 @@
 __pycache__/
 output/
 
+inputs/
 *.pyc
 **/.env
 **/.env.local
