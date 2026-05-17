@@ -128,7 +128,7 @@ async def _broadcast(payload: dict[str, Any]) -> None:
     """Send the aggregate snapshot to all connected frontend clients."""
     if not _frontend_clients:
         return
-        
+
     message = json.dumps(payload)
     dead: set[WebSocket] = set()
 
@@ -398,127 +398,21 @@ async def get_tiles_preview(job_id: str):
     return {"job_id": job_id, "tiles": []}
 
 
-@app.get("/api/benchmark")
-async def get_benchmark():
 
-    jobs = await redis_service.list_jobs(limit=100)
 
-    completed_jobs = [
-        j for j in jobs if j.get("status") == "completed" and "completed_at" in j
-    ]
 
-    P_FRACTION = 0.95
 
-    base_frame_time = 12.5
 
-    actual_data = []
 
-    for j in completed_jobs:
-        duration = j.get("completed_at", 0) - j.get("created_at", 0)
 
-        frames = j.get("total_frames", 1)
 
-        if duration <= 0 or frames <= 0:
-            continue
 
-        workflow = j.get("workflow")
 
-        if isinstance(workflow, str):
-            import json
 
-            try:
-                workflow = json.loads(workflow)
 
-            except Exception:
-                workflow = {}
 
-        elif not isinstance(workflow, dict):
-            workflow = {}
 
-        workers = workflow.get("workers", 0)
 
-        if not workers:
-            avg_time_per_frame = duration / frames
 
-            if avg_time_per_frame < 5:
-                workers = 4
 
-            elif avg_time_per_frame < 8:
-                workers = 2
 
-            else:
-                workers = 1
-
-        actual_data.append(
-            {
-                "workers": int(workers),
-                "duration": duration,
-                "frames": frames,
-                "job_id": j.get("job_id"),
-            }
-        )
-
-    worker_groups = {}
-
-    for d in actual_data:
-        w = d["workers"]
-
-        if w not in worker_groups:
-            worker_groups[w] = []
-
-        worker_groups[w].append(d)
-
-    final_actual = []
-
-    t1_jobs = worker_groups.get(1, [])
-
-    if t1_jobs:
-        total_dur = sum(j["duration"] for j in t1_jobs)
-
-        total_frames = sum(j["frames"] for j in t1_jobs)
-
-        base_frame_time = total_dur / total_frames
-
-    elif actual_data:
-        best_job = min(actual_data, key=lambda x: x["duration"] / x["frames"])
-
-        base_frame_time = (best_job["duration"] * best_job["workers"] * 0.9) / best_job[
-            "frames"
-        ]
-
-    for w, jobs_list in worker_groups.items():
-        total_dur = sum(j["duration"] for j in jobs_list)
-
-        total_frames = sum(j["frames"] for j in jobs_list)
-
-        t1_theoretical = total_frames * base_frame_time
-
-        speedup = t1_theoretical / total_dur if total_dur > 0 else 1
-
-        final_actual.append(
-            {
-                "workers": w,
-                "actual_time": round(total_dur / len(jobs_list), 2),
-                "actual_speedup": round(speedup, 2),
-                "job_count": len(jobs_list),
-            }
-        )
-
-    final_actual.sort(key=lambda x: x["workers"])
-
-    max_workers = max([d["workers"] for d in final_actual] + [4]) if final_actual else 4
-
-    theoretical_data = []
-
-    for n in range(1, max_workers + 3):
-        s_n = 1 / ((1 - P_FRACTION) + (P_FRACTION / n))
-
-        theoretical_data.append({"workers": n, "theoretical_speedup": round(s_n, 2)})
-
-    return {
-        "p_fraction": P_FRACTION,
-        "base_frame_time": round(base_frame_time, 2),
-        "actual_data": final_actual,
-        "theoretical_data": theoretical_data,
-        "total_jobs_analyzed": len(completed_jobs),
-    }

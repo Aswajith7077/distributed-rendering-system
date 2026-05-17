@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { name: "Renderer", href: "/", icon: Home },
   { name: "Health", href: "/health", icon: Activity },
-  { name: "Benchmarks", href: "/benchmark", icon: BarChart2 },
+  // { name: "Benchmarks", href: "/benchmark", icon: BarChart2 },
 ];
 
 export function Sidebar() {
